@@ -6,6 +6,7 @@ import ShiftHandover from "./components/ShiftHandover";
 import MapView from "./components/MapView";
 import AlarmLog from "./components/AlarmLog";
 import RegulatoryView from "./components/RegulatoryView";
+import GeniePage from "./pages/GeniePage";
 
 function NetworkNormal() {
   return (
@@ -21,8 +22,8 @@ function NetworkNormal() {
   );
 }
 
-function NavBar({ hasIncident }) {
-  const linkClass = ({ isActive }) =>
+function NavBar({ hasIncident }: { hasIncident: boolean }) {
+  const linkClass = ({ isActive }: { isActive: boolean }) =>
     `px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
       isActive
         ? "bg-water-700 text-white shadow-sm"
@@ -54,6 +55,9 @@ function NavBar({ hasIncident }) {
               Regulatory
             </NavLink>
           )}
+          <NavLink to="/genie" className={linkClass}>
+            Ask Genie
+          </NavLink>
         </nav>
       </div>
     </header>
@@ -93,31 +97,18 @@ export default function App() {
             <Route
               path="/"
               element={
-                hasIncident ? (
-                  <ShiftHandover incident={activeIncident} />
-                ) : (
-                  <NetworkNormal />
-                )
+                hasIncident ? <ShiftHandover incident={activeIncident} /> : <NetworkNormal />
               }
             />
-            <Route
-              path="/map"
-              element={<MapView activeIncident={activeIncident} />}
-            />
-            <Route
-              path="/incidents"
-              element={<AlarmLog activeIncident={activeIncident} />}
-            />
+            <Route path="/map" element={<MapView activeIncident={activeIncident} />} />
+            <Route path="/incidents" element={<AlarmLog activeIncident={activeIncident} />} />
             <Route
               path="/regulatory"
               element={
-                hasIncident ? (
-                  <RegulatoryView incident={activeIncident} />
-                ) : (
-                  <NetworkNormal />
-                )
+                hasIncident ? <RegulatoryView incident={activeIncident} /> : <NetworkNormal />
               }
             />
+            <Route path="/genie" element={<GeniePage />} />
           </Routes>
         </main>
       </div>

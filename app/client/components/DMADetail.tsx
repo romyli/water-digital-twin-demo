@@ -15,9 +15,15 @@ import EmptyState from "./common/EmptyState";
 import AssetDetail from "./AssetDetail";
 import CustomerImpact from "./CustomerImpact";
 
-export default function DMADetail({ dmaCode, activeIncident }) {
+export default function DMADetail({
+  dmaCode,
+  activeIncident,
+}: {
+  dmaCode: string;
+  activeIncident: any;
+}) {
   const [activeTab, setActiveTab] = useState("summary");
-  const [selectedSensor, setSelectedSensor] = useState(null);
+  const [selectedSensor, setSelectedSensor] = useState<string | null>(null);
 
   const { data: detail, isLoading: loadingDetail } = useQuery({
     queryKey: ["dmaDetail", dmaCode],
@@ -61,14 +67,12 @@ export default function DMADetail({ dmaCode, activeIncident }) {
   const ragHistory = ragData?.rag_history || [];
   const reservoirs = reservoirData?.reservoirs || [];
 
-  // Sort sensors: low pressure first (ascending by latest reading)
   const sortedSensors = [...sensors].sort(
-    (a, b) => (a.latest_pressure ?? 999) - (b.latest_pressure ?? 999)
+    (a: any, b: any) => (a.latest_pressure ?? 999) - (b.latest_pressure ?? 999)
   );
 
-  // Build root cause chain from assets
-  const pumpAssets = assets.filter((a) => a.asset_type === "pump_station");
-  const trunkMains = assets.filter((a) => a.asset_type === "trunk_main");
+  const pumpAssets = assets.filter((a: any) => a.asset_type === "pump_station");
+  const trunkMains = assets.filter((a: any) => a.asset_type === "trunk_main");
   const rootCauseText =
     pumpAssets.length > 0 && trunkMains.length > 0
       ? `Root Cause: Pump station ${pumpAssets[0].asset_id} tripped at ${
@@ -89,11 +93,7 @@ export default function DMADetail({ dmaCode, activeIncident }) {
         >
           &larr; Back to DMA
         </button>
-        <AssetDetail
-          sensorId={selectedSensor}
-          dmaCode={dmaCode}
-          activeIncident={activeIncident}
-        />
+        <AssetDetail sensorId={selectedSensor} dmaCode={dmaCode} activeIncident={activeIncident} />
       </div>
     );
   }
@@ -107,13 +107,11 @@ export default function DMADetail({ dmaCode, activeIncident }) {
 
   return (
     <div className="p-4 space-y-4">
-      {/* RAG Timeline */}
       <div>
         <p className="text-xs text-gray-500 mb-1">RAG History (24h)</p>
         <TimelineStrip history={ragHistory} />
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-1 border-b border-gray-100 pb-1">
         {tabs.map((t) => (
           <button
@@ -130,21 +128,19 @@ export default function DMADetail({ dmaCode, activeIncident }) {
         ))}
       </div>
 
-      {/* Tab Content */}
       {activeTab === "summary" && (
         <div className="space-y-4">
-          {/* DMA Summary */}
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="bg-gray-50 rounded-lg p-3">
               <p className="text-gray-500 text-xs">Avg Pressure</p>
               <p className="font-semibold text-lg">
-                {detail?.avg_pressure != null ? `${Number(detail.avg_pressure).toFixed(1)} m` : "—"}
+                {detail?.avg_pressure != null ? `${Number(detail.avg_pressure).toFixed(1)} m` : "\u2014"}
               </p>
             </div>
             <div className="bg-gray-50 rounded-lg p-3">
               <p className="text-gray-500 text-xs">Avg Flow</p>
               <p className="font-semibold text-lg">
-                {detail?.avg_flow != null ? `${Number(detail.avg_flow).toFixed(1)} l/s` : "—"}
+                {detail?.avg_flow != null ? `${Number(detail.avg_flow).toFixed(1)} l/s` : "\u2014"}
               </p>
             </div>
             <div className="bg-gray-50 rounded-lg p-3">
@@ -153,11 +149,10 @@ export default function DMADetail({ dmaCode, activeIncident }) {
             </div>
             <div className="bg-gray-50 rounded-lg p-3">
               <p className="text-gray-500 text-xs">Properties</p>
-              <p className="font-semibold text-lg">{detail?.property_count ?? "—"}</p>
+              <p className="font-semibold text-lg">{detail?.property_count ?? "\u2014"}</p>
             </div>
           </div>
 
-          {/* Root Cause Chain */}
           {rootCauseText && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
               <p className="font-medium mb-1">Upstream Root Cause</p>
@@ -165,11 +160,10 @@ export default function DMADetail({ dmaCode, activeIncident }) {
             </div>
           )}
 
-          {/* Reservoirs */}
           {reservoirs.length > 0 && (
             <div>
               <p className="text-xs font-medium text-gray-500 mb-2">Reservoir Status</p>
-              {reservoirs.map((r) => (
+              {reservoirs.map((r: any) => (
                 <div key={r.reservoir_id} className="bg-gray-50 rounded-lg p-3 text-sm">
                   <div className="flex justify-between items-center">
                     <span className="font-medium">{r.reservoir_id}</span>
@@ -177,7 +171,7 @@ export default function DMADetail({ dmaCode, activeIncident }) {
                       status={
                         (r.level_pct ?? 50) < 30 ? "RED" : (r.level_pct ?? 50) < 60 ? "AMBER" : "GREEN"
                       }
-                      label={`${r.level_pct ?? "—"}%`}
+                      label={`${r.level_pct ?? "\u2014"}%`}
                     />
                   </div>
                   {r.est_supply_hours != null && (
@@ -190,12 +184,11 @@ export default function DMADetail({ dmaCode, activeIncident }) {
             </div>
           )}
 
-          {/* Upstream Assets */}
           {assets.length > 0 && (
             <div>
               <p className="text-xs font-medium text-gray-500 mb-2">Upstream Assets</p>
               <div className="space-y-1.5">
-                {assets.map((a) => (
+                {assets.map((a: any) => (
                   <div
                     key={a.asset_id}
                     className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-sm"
@@ -218,7 +211,7 @@ export default function DMADetail({ dmaCode, activeIncident }) {
           {sortedSensors.length === 0 ? (
             <EmptyState title="No sensors" message="No sensors found in this DMA." />
           ) : (
-            sortedSensors.map((s) => {
+            sortedSensors.map((s: any) => {
               const pressure = s.latest_pressure ?? s.avg_pressure;
               const isLow = pressure != null && pressure < 10;
               return (
@@ -231,12 +224,10 @@ export default function DMADetail({ dmaCode, activeIncident }) {
                     <span className="font-medium">{s.sensor_id}</span>
                     <RAGBadge
                       status={isLow ? "RED" : "GREEN"}
-                      label={pressure != null ? `${Number(pressure).toFixed(1)} m` : "—"}
+                      label={pressure != null ? `${Number(pressure).toFixed(1)} m` : "\u2014"}
                     />
                   </div>
-                  {s.sensor_type && (
-                    <p className="text-xs text-gray-500 mt-0.5">{s.sensor_type}</p>
-                  )}
+                  {s.sensor_type && <p className="text-xs text-gray-500 mt-0.5">{s.sensor_type}</p>}
                 </button>
               );
             })
@@ -249,14 +240,12 @@ export default function DMADetail({ dmaCode, activeIncident }) {
           {complaints.length === 0 ? (
             <EmptyState title="No complaints" message="No recent customer complaints for this DMA." />
           ) : (
-            complaints.map((c, i) => (
+            complaints.map((c: any, i: number) => (
               <div key={i} className="bg-gray-50 rounded-lg p-3 text-sm">
                 <div className="flex justify-between items-start">
                   <span className="font-medium">{c.complaint_type || "Complaint"}</span>
                   <span className="text-xs text-gray-400">
-                    {c.reported_at
-                      ? new Date(c.reported_at).toLocaleString()
-                      : "—"}
+                    {c.reported_at ? new Date(c.reported_at).toLocaleString() : "\u2014"}
                   </span>
                 </div>
                 <p className="text-gray-600 text-xs mt-1">{c.description || "No description"}</p>
@@ -269,9 +258,7 @@ export default function DMADetail({ dmaCode, activeIncident }) {
         </div>
       )}
 
-      {activeTab === "impact" && (
-        <CustomerImpact dmaCode={dmaCode} />
-      )}
+      {activeTab === "impact" && <CustomerImpact dmaCode={dmaCode} />}
     </div>
   );
 }

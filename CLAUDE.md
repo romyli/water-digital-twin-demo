@@ -36,6 +36,10 @@ All notebooks and pipelines must use **serverless** compute unless there is a sp
 ### SDP API
 Use `from pyspark import pipelines as dp` — **not** the legacy `import dlt` module.
 
+### Metric Views
+Use `CREATE OR REPLACE VIEW ... WITH METRICS LANGUAGE YAML AS $$ ... $$` — **not** `CREATE METRIC VIEW`. Both dimensions and measures require an `expr` field.
+- **Querying metric views:** Measure columns must be wrapped in `MEASURE()` and dimensions must appear in `GROUP BY`. Example: `SELECT dim_col, MEASURE(measure_col) AS m FROM mv GROUP BY dim_col`. Selecting a measure column without `MEASURE()` raises `METRIC_VIEW_MISSING_MEASURE_FUNCTION`.
+
 ### Notebook types
 - **All text content** (guides, walkthroughs, runbooks) must be Python notebooks with `# MAGIC %md` markdown cells — never plain `.md` files. This ensures they render in Databricks and can be attached to clusters.
 - **SDP/DLT pipelines** are notebook source files but must be deployed as a **Pipeline resource** (not run as a notebook task). The orchestration workflow references them as Pipeline tasks, not Notebook tasks.

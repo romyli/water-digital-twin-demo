@@ -1,12 +1,18 @@
 import React from "react";
 
-const RAG_COLORS = {
+const RAG_COLORS: Record<string, string> = {
   RED: "#DC2626",
   AMBER: "#F59E0B",
   GREEN: "#16A34A",
 };
 
-export default function TimelineStrip({ history = [], className = "" }) {
+export default function TimelineStrip({
+  history = [],
+  className = "",
+}: {
+  history?: any[];
+  className?: string;
+}) {
   if (!history.length) {
     return (
       <div className={`h-6 bg-gray-100 rounded text-xs text-gray-400 flex items-center justify-center ${className}`}>

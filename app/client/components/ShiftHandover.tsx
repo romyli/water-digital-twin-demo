@@ -7,7 +7,7 @@ import LoadingSpinner from "./common/LoadingSpinner";
 import EmptyState from "./common/EmptyState";
 import CommunicationsLog from "./CommunicationsLog";
 
-export default function ShiftHandover({ incident }) {
+export default function ShiftHandover({ incident }: { incident: any }) {
   const [acknowledged, setAcknowledged] = useState(false);
   const queryClient = useQueryClient();
 
@@ -26,7 +26,7 @@ export default function ShiftHandover({ incident }) {
       }),
     onSuccess: () => {
       setAcknowledged(true);
-      queryClient.invalidateQueries(["handover", incident.incident_id]);
+      queryClient.invalidateQueries({ queryKey: ["handover", incident.incident_id] });
     },
   });
 
@@ -34,7 +34,7 @@ export default function ShiftHandover({ incident }) {
   if (error)
     return (
       <div className="max-w-5xl mx-auto p-6">
-        <div className="card text-red-600">Failed to load handover: {error.message}</div>
+        <div className="card text-red-600">Failed to load handover: {(error as Error).message}</div>
       </div>
     );
 
@@ -96,7 +96,7 @@ export default function ShiftHandover({ incident }) {
         <h2 className="panel-title">Actions Taken</h2>
         {actionsTaken.length > 0 ? (
           <ul className="space-y-2 text-sm">
-            {actionsTaken.map((a, i) => (
+            {actionsTaken.map((a: any, i: number) => (
               <li key={i} className="flex items-start gap-2">
                 <span className="mt-1 w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
                 <div>
@@ -121,7 +121,7 @@ export default function ShiftHandover({ incident }) {
         <h2 className="panel-title">Outstanding Actions</h2>
         {outstanding.length > 0 ? (
           <ul className="space-y-2 text-sm">
-            {outstanding.map((a, i) => (
+            {outstanding.map((a: any, i: number) => (
               <li key={i} className="flex items-start gap-2">
                 <span className="mt-1 w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
                 <div>

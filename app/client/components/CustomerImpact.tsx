@@ -3,27 +3,26 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchDMAProperties } from "../api";
 import LoadingSpinner from "./common/LoadingSpinner";
 import EmptyState from "./common/EmptyState";
-import RAGBadge from "./common/RAGBadge";
 
-const IMPACT_COLORS = {
+const IMPACT_COLORS: Record<string, string> = {
   high: "#DC2626",
   medium: "#F59E0B",
   low: "#16A34A",
   none: "#94A3B8",
 };
 
-function classifyImpact(property, simulatedPressurePct) {
+function classifyImpact(property: any, simulatedPressurePct: number) {
   const height = Number(property.elevation_m ?? property.height ?? 0);
   const basePressure = Number(property.base_pressure ?? 25);
   const simPressure = basePressure * (simulatedPressurePct / 100);
-  const effectivePressure = simPressure - height * 0.098; // rough hydrostatic
+  const effectivePressure = simPressure - height * 0.098;
   if (effectivePressure <= 0) return "high";
   if (effectivePressure < 5) return "medium";
   if (effectivePressure < 10) return "low";
   return "none";
 }
 
-export default function CustomerImpact({ dmaCode }) {
+export default function CustomerImpact({ dmaCode }: { dmaCode: string }) {
   const [pressurePct, setPressurePct] = useState(50);
 
   const { data, isLoading } = useQuery({
@@ -36,16 +35,14 @@ export default function CustomerImpact({ dmaCode }) {
 
   const impactSummary = useMemo(() => {
     const counts = { high: 0, medium: 0, low: 0, none: 0 };
-    const classified = properties.map((p) => {
+    const classified = properties.map((p: any) => {
       const impact = classifyImpact(p, pressurePct);
-      counts[impact]++;
+      counts[impact as keyof typeof counts]++;
       return { ...p, impact };
     });
-    // Sort: high elevation (most impacted) first
     classified.sort(
-      (a, b) =>
-        Number(b.elevation_m ?? b.height ?? 0) -
-        Number(a.elevation_m ?? a.height ?? 0)
+      (a: any, b: any) =>
+        Number(b.elevation_m ?? b.height ?? 0) - Number(a.elevation_m ?? a.height ?? 0)
     );
     return { classified, counts };
   }, [properties, pressurePct]);
@@ -63,9 +60,7 @@ export default function CustomerImpact({ dmaCode }) {
       {/* What-if slider */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-medium text-blue-800">
-            What-if: Simulated pressure level
-          </p>
+          <p className="text-xs font-medium text-blue-800">What-if: Simulated pressure level</p>
           <span className="text-sm font-semibold text-blue-700">{pressurePct}%</span>
         </div>
         <input
@@ -83,12 +78,12 @@ export default function CustomerImpact({ dmaCode }) {
 
       {/* Impact summary */}
       <div className="grid grid-cols-4 gap-2 text-center text-xs">
-        {[
+        {([
           { key: "high", label: "High", color: "bg-red-100 text-red-800" },
           { key: "medium", label: "Medium", color: "bg-amber-100 text-amber-800" },
           { key: "low", label: "Low", color: "bg-green-100 text-green-800" },
           { key: "none", label: "None", color: "bg-gray-100 text-gray-600" },
-        ].map((cat) => (
+        ] as const).map((cat) => (
           <div key={cat.key} className={`rounded-lg p-2 ${cat.color}`}>
             <p className="font-bold text-lg">{counts[cat.key]}</p>
             <p>{cat.label}</p>
@@ -100,9 +95,9 @@ export default function CustomerImpact({ dmaCode }) {
         {total} properties total — {counts.high + counts.medium} impacted at {pressurePct}% pressure
       </p>
 
-      {/* Property list (top impacted) */}
+      {/* Property list */}
       <div className="space-y-1.5 max-h-60 overflow-y-auto">
-        {classified.slice(0, 30).map((p, i) => (
+        {classified.slice(0, 30).map((p: any, i: number) => (
           <div
             key={p.property_id || i}
             className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-xs"

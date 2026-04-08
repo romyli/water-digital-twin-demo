@@ -1,6 +1,14 @@
 import React from "react";
 
-export default function EmptyState({ title = "No data", message = "Nothing to display right now.", icon }) {
+export default function EmptyState({
+  title = "No data",
+  message = "Nothing to display right now.",
+  icon,
+}: {
+  title?: string;
+  message?: string;
+  icon?: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col items-center justify-center py-10 text-center">
       {icon && <div className="text-4xl mb-3 text-gray-300">{icon}</div>}

@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { fetchRegulatory, generatePDFReport, createCommsRequest } from "../api";
+import { fetchRegulatory, createCommsRequest } from "../api";
 import { format, differenceInSeconds } from "date-fns";
 import RAGBadge from "./common/RAGBadge";
 import LoadingSpinner from "./common/LoadingSpinner";
 import EmptyState from "./common/EmptyState";
 
-function useCountdown(startTime) {
+function useCountdown(startTime?: string) {
   const [elapsed, setElapsed] = useState("00:00:00");
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {
@@ -29,25 +29,12 @@ function useCountdown(startTime) {
   return { elapsed, seconds };
 }
 
-export default function RegulatoryView({ incident }) {
+export default function RegulatoryView({ incident }: { incident: any }) {
   const { data, isLoading, error } = useQuery({
     queryKey: ["regulatory", incident?.incident_id],
     queryFn: () => fetchRegulatory(incident.incident_id),
     enabled: !!incident?.incident_id,
     refetchInterval: 30_000,
-  });
-
-  const pdfMutation = useMutation({
-    mutationFn: () => generatePDFReport(incident.incident_id),
-    onSuccess: (blob) => {
-      // Client-side PDF download via html2pdf.js or blob download
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `incident_${incident.incident_id}_report.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-    },
   });
 
   const commsMutation = useMutation({
@@ -59,13 +46,13 @@ export default function RegulatoryView({ incident }) {
       }),
   });
 
-  const { elapsed, seconds } = useCountdown(incident?.created_at);
+  const { elapsed } = useCountdown(incident?.created_at);
 
   if (isLoading) return <LoadingSpinner message="Loading regulatory data..." />;
   if (error)
     return (
       <div className="max-w-5xl mx-auto p-6">
-        <div className="card text-red-600">Failed to load: {error.message}</div>
+        <div className="card text-red-600">Failed to load: {(error as Error).message}</div>
       </div>
     );
 
@@ -76,10 +63,10 @@ export default function RegulatoryView({ incident }) {
   const totalProps = reg.total_properties || 0;
   const hoursElapsed = reg.hours_elapsed || 0;
 
-  // C-MeX proactive rate estimate
-  const proactiveRate = totalProps > 0 ? Math.min(100, Math.round((totalProps * 0.6) / totalProps * 100)) : 0;
+  const proactiveRate =
+    totalProps > 0 ? Math.min(100, Math.round((totalProps * 0.6) / totalProps * 100)) : 0;
 
-  const deadlineStatus = (d) => {
+  const deadlineStatus = (d: any) => {
     if (d.status === "DONE") return "GREEN";
     if (d.status === "BREACHED") return "RED";
     const hoursLeft = d.hours - hoursElapsed;
@@ -104,13 +91,6 @@ export default function RegulatoryView({ incident }) {
               ? "Requested"
               : "Request Proactive Comms"}
           </button>
-          <button
-            onClick={() => pdfMutation.mutate()}
-            disabled={pdfMutation.isPending}
-            className="btn-primary"
-          >
-            {pdfMutation.isPending ? "Generating..." : "Export PDF Report"}
-          </button>
         </div>
       </div>
 
@@ -120,7 +100,7 @@ export default function RegulatoryView({ incident }) {
           <div>
             <h2 className="panel-title">Duration of Interruption</h2>
             <p className="text-sm text-gray-500">
-              Started: {incident?.created_at ? format(new Date(incident.created_at), "dd MMM yyyy HH:mm") : "—"}
+              Started: {incident?.created_at ? format(new Date(incident.created_at), "dd MMM yyyy HH:mm") : "\u2014"}
             </p>
           </div>
           <div className="text-right">
@@ -135,7 +115,7 @@ export default function RegulatoryView({ incident }) {
         <h2 className="panel-title">Affected Properties by Type</h2>
         {properties.length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {properties.map((p) => (
+            {properties.map((p: any) => (
               <div key={p.property_type} className="bg-gray-50 rounded-lg p-3 text-center">
                 <p className="text-2xl font-bold text-water-800">{p.count}</p>
                 <p className="text-xs text-gray-500 capitalize">{p.property_type || "Other"}</p>
@@ -155,11 +135,8 @@ export default function RegulatoryView({ incident }) {
       <div className="card">
         <h2 className="panel-title">Regulatory Deadline Tracker</h2>
         <div className="space-y-3">
-          {Object.entries(deadlines).map(([key, d]) => (
-            <div
-              key={key}
-              className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3"
-            >
+          {Object.entries(deadlines).map(([key, d]: [string, any]) => (
+            <div key={key} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3">
               <div>
                 <p className="text-sm font-medium">{d.label}</p>
                 <p className="text-xs text-gray-500">Threshold: {d.hours}h</p>
@@ -229,10 +206,10 @@ export default function RegulatoryView({ incident }) {
             <div className="absolute -left-[21px] w-3 h-3 rounded-full bg-green-500 border-2 border-white" />
             <p className="text-sm font-medium">Incident detected</p>
             <p className="text-xs text-gray-400">
-              {incident?.created_at ? format(new Date(incident.created_at), "dd MMM HH:mm:ss") : "—"}
+              {incident?.created_at ? format(new Date(incident.created_at), "dd MMM HH:mm:ss") : "\u2014"}
             </p>
           </div>
-          {Object.entries(deadlines).map(([key, d]) =>
+          {Object.entries(deadlines).map(([key, d]: [string, any]) =>
             d.status === "DONE" ? (
               <div key={key} className="relative">
                 <div className="absolute -left-[21px] w-3 h-3 rounded-full bg-green-500 border-2 border-white" />

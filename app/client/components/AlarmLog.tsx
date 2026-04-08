@@ -6,7 +6,7 @@ import RAGBadge from "./common/RAGBadge";
 import LoadingSpinner from "./common/LoadingSpinner";
 import EmptyState from "./common/EmptyState";
 
-export default function AlarmLog({ activeIncident }) {
+export default function AlarmLog({ activeIncident }: { activeIncident: any }) {
   const [selectedIncidentId, setSelectedIncidentId] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
 
@@ -17,11 +17,8 @@ export default function AlarmLog({ activeIncident }) {
 
   const incidents = incidentsData?.incidents || [];
 
-  // Fetch events for selected incident or the first active one
   const queryIncidentId =
-    selectedIncidentId === "all"
-      ? activeIncident?.incident_id
-      : selectedIncidentId;
+    selectedIncidentId === "all" ? activeIncident?.incident_id : selectedIncidentId;
 
   const { data: eventsData, isLoading } = useQuery({
     queryKey: ["incidentEvents", queryIncidentId],
@@ -31,18 +28,17 @@ export default function AlarmLog({ activeIncident }) {
 
   const allEvents = eventsData?.events || [];
 
-  // Extract unique event types for filtering
   const eventTypes = useMemo(() => {
-    const types = new Set(allEvents.map((e) => e.event_type).filter(Boolean));
+    const types = new Set(allEvents.map((e: any) => e.event_type).filter(Boolean));
     return Array.from(types).sort();
   }, [allEvents]);
 
   const filteredEvents = useMemo(() => {
     if (typeFilter === "all") return allEvents;
-    return allEvents.filter((e) => e.event_type === typeFilter);
+    return allEvents.filter((e: any) => e.event_type === typeFilter);
   }, [allEvents, typeFilter]);
 
-  const eventTypeColor = (type) => {
+  const eventTypeColor = (type?: string) => {
     const t = type?.toLowerCase() || "";
     if (t.includes("alarm") || t.includes("alert")) return "RED";
     if (t.includes("warn") || t.includes("change")) return "AMBER";
@@ -54,21 +50,18 @@ export default function AlarmLog({ activeIncident }) {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-water-800">Alarm & Event Log</h1>
         <div className="flex items-center gap-3">
-          {/* Incident selector */}
           <select
             className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white"
             value={selectedIncidentId}
             onChange={(e) => setSelectedIncidentId(e.target.value)}
           >
             <option value="all">All events (last 24h)</option>
-            {incidents.map((inc) => (
+            {incidents.map((inc: any) => (
               <option key={inc.incident_id} value={inc.incident_id}>
                 {inc.incident_id} — {inc.incident_type}
               </option>
             ))}
           </select>
-
-          {/* Type filter */}
           <select
             className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white"
             value={typeFilter}
@@ -87,10 +80,7 @@ export default function AlarmLog({ activeIncident }) {
       {isLoading ? (
         <LoadingSpinner message="Loading events..." />
       ) : filteredEvents.length === 0 ? (
-        <EmptyState
-          title="No events"
-          message="No alarm or event records found for the selected filters."
-        />
+        <EmptyState title="No events" message="No alarm or event records found for the selected filters." />
       ) : (
         <div className="card overflow-hidden p-0">
           <table className="w-full text-sm">
@@ -104,18 +94,16 @@ export default function AlarmLog({ activeIncident }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredEvents.map((evt, i) => (
+              {filteredEvents.map((evt: any, i: number) => (
                 <tr key={i} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
-                    {evt.event_time
-                      ? format(new Date(evt.event_time), "dd MMM HH:mm:ss")
-                      : "—"}
+                    {evt.event_time ? format(new Date(evt.event_time), "dd MMM HH:mm:ss") : "\u2014"}
                   </td>
                   <td className="px-4 py-3">
-                    <RAGBadge status={eventTypeColor(evt.event_type)} label={evt.event_type || "—"} />
+                    <RAGBadge status={eventTypeColor(evt.event_type)} label={evt.event_type || "\u2014"} />
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{evt.source || evt.sensor_id || "—"}</td>
-                  <td className="px-4 py-3 text-gray-700">{evt.description || "—"}</td>
+                  <td className="px-4 py-3 text-gray-600">{evt.source || evt.sensor_id || "\u2014"}</td>
+                  <td className="px-4 py-3 text-gray-700">{evt.description || "\u2014"}</td>
                   <td className="px-4 py-3">
                     <span
                       className={`text-xs font-medium capitalize ${
@@ -126,7 +114,7 @@ export default function AlarmLog({ activeIncident }) {
                           : "text-gray-500"
                       }`}
                     >
-                      {evt.status || "—"}
+                      {evt.status || "\u2014"}
                     </span>
                   </td>
                 </tr>

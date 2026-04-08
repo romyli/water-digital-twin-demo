@@ -11,7 +11,6 @@ import {
   ResponsiveContainer,
   ComposedChart,
   Line,
-  Bar,
   XAxis,
   YAxis,
   Tooltip,
@@ -24,9 +23,17 @@ import TimelineStrip from "./common/TimelineStrip";
 import LoadingSpinner from "./common/LoadingSpinner";
 import EmptyState from "./common/EmptyState";
 
-export default function AssetDetail({ sensorId, dmaCode, activeIncident }) {
+export default function AssetDetail({
+  sensorId,
+  dmaCode,
+  activeIncident,
+}: {
+  sensorId: string;
+  dmaCode: string;
+  activeIncident: any;
+}) {
   const queryClient = useQueryClient();
-  const [decisions, setDecisions] = useState({});
+  const [decisions, setDecisions] = useState<Record<string, string>>({});
 
   const { data: telemetryData, isLoading: loadingTelemetry } = useQuery({
     queryKey: ["telemetry", sensorId],
@@ -58,33 +65,29 @@ export default function AssetDetail({ sensorId, dmaCode, activeIncident }) {
   const ragHistory = ragData?.rag_history || [];
   const playbookSteps = playbookData?.steps || [];
 
-  // Build chart data
   const chartData = useMemo(() => {
-    return telemetry.map((t) => ({
+    return telemetry.map((t: any) => ({
       time: t.ts ? format(new Date(t.ts), "HH:mm") : "",
       pressure: t.pressure != null ? Number(t.pressure) : null,
       flow: t.flow != null ? Number(t.flow) : null,
     }));
   }, [telemetry]);
 
-  // Find first anomaly
   const firstAnomaly = anomalies.length > 0 ? anomalies[anomalies.length - 1] : null;
   const firstComplaintTime = activeIncident?.first_complaint_time;
   const anomalyLeadMin = useMemo(() => {
     if (!firstAnomaly?.scored_at || !firstComplaintTime) return null;
     const diff =
-      (new Date(firstComplaintTime) - new Date(firstAnomaly.scored_at)) / 60000;
+      (new Date(firstComplaintTime).getTime() - new Date(firstAnomaly.scored_at).getTime()) / 60000;
     return diff > 0 ? Math.round(diff) : null;
   }, [firstAnomaly, firstComplaintTime]);
 
-  // Playbook save mutation
   const saveMutation = useMutation({
-    mutationFn: (actions) =>
-      savePlaybookActions(activeIncident?.incident_id, actions),
-    onSuccess: () => queryClient.invalidateQueries(["playbook"]),
+    mutationFn: (actions: any[]) => savePlaybookActions(activeIncident?.incident_id, actions),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["playbook"] }),
   });
 
-  const handleDecision = (actionId, decision) => {
+  const handleDecision = (actionId: string, decision: string) => {
     setDecisions((prev) => ({ ...prev, [actionId]: decision }));
   };
 
@@ -102,7 +105,6 @@ export default function AssetDetail({ sensorId, dmaCode, activeIncident }) {
     <div className="space-y-4">
       <h3 className="font-semibold text-water-800">{sensorId}</h3>
 
-      {/* Anomaly badge */}
       {firstAnomaly && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm">
           <div className="flex items-center gap-2">
@@ -110,14 +112,9 @@ export default function AssetDetail({ sensorId, dmaCode, activeIncident }) {
           </div>
           <p className="text-red-700 mt-1">
             Anomaly detected at{" "}
-            {firstAnomaly.scored_at
-              ? format(new Date(firstAnomaly.scored_at), "HH:mm")
-              : "—"}
+            {firstAnomaly.scored_at ? format(new Date(firstAnomaly.scored_at), "HH:mm") : "\u2014"}
             {anomalyLeadMin != null && (
-              <span className="font-medium">
-                {" "}
-                — {anomalyLeadMin} min before first complaint
-              </span>
+              <span className="font-medium"> — {anomalyLeadMin} min before first complaint</span>
             )}
           </p>
           {firstAnomaly.score != null && (
@@ -128,7 +125,6 @@ export default function AssetDetail({ sensorId, dmaCode, activeIncident }) {
         </div>
       )}
 
-      {/* Dual-axis chart */}
       {chartData.length > 0 ? (
         <div className="bg-gray-50 rounded-lg p-3">
           <p className="text-xs font-medium text-gray-500 mb-2">Telemetry (24h)</p>
@@ -174,29 +170,25 @@ export default function AssetDetail({ sensorId, dmaCode, activeIncident }) {
         <EmptyState title="No telemetry" message="No telemetry data available for this sensor." />
       )}
 
-      {/* RAG Timeline */}
       <div>
         <p className="text-xs font-medium text-gray-500 mb-1">RAG Timeline</p>
         <TimelineStrip history={ragHistory} />
       </div>
 
-      {/* Response Playbook */}
       {playbookSteps.length > 0 && (
         <div>
           <p className="text-xs font-medium text-gray-500 mb-2">Response Playbook</p>
           <div className="space-y-2">
-            {playbookSteps.map((step, i) => {
+            {playbookSteps.map((step: any, i: number) => {
               const actionId = step.action_id || step.step_id || `step-${i}`;
               const current = decisions[actionId];
               return (
                 <div key={actionId} className="bg-gray-50 rounded-lg p-3 text-sm">
                   <div className="flex justify-between items-start mb-2">
-                    <div>
-                      <span className="font-medium">
-                        {step.step_order != null ? `${step.step_order}. ` : ""}
-                        {step.action || step.description}
-                      </span>
-                    </div>
+                    <span className="font-medium">
+                      {step.step_order != null ? `${step.step_order}. ` : ""}
+                      {step.action || step.description}
+                    </span>
                   </div>
                   <div className="flex gap-1.5">
                     {["Accept", "Defer", "Not Applicable"].map((opt) => (

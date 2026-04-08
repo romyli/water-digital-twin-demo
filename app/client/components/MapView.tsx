@@ -5,25 +5,24 @@ import { fetchMapGeoJSON, fetchMapAssets } from "../api";
 import DMADetail from "./DMADetail";
 import LoadingSpinner from "./common/LoadingSpinner";
 
-// Mapbox token — set via environment or replace for demo
-mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_TOKEN || "";
+mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || "";
 
-const RAG_FILL = {
+const RAG_FILL: Record<string, string> = {
   RED: "rgba(220, 38, 38, 0.35)",
   AMBER: "rgba(245, 158, 11, 0.3)",
   GREEN: "rgba(22, 163, 74, 0.2)",
 };
-const RAG_STROKE = {
+const RAG_STROKE: Record<string, string> = {
   RED: "#DC2626",
   AMBER: "#F59E0B",
   GREEN: "#16A34A",
 };
 
-export default function MapView({ activeIncident }) {
-  const mapContainer = useRef(null);
-  const mapRef = useRef(null);
-  const popupRef = useRef(null);
-  const [selectedDMA, setSelectedDMA] = useState(null);
+export default function MapView({ activeIncident }: { activeIncident: any }) {
+  const mapContainer = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const popupRef = useRef<mapboxgl.Popup | null>(null);
+  const [selectedDMA, setSelectedDMA] = useState<string | null>(null);
   const [filter, setFilter] = useState("ALL");
 
   const { data: geojson, isLoading } = useQuery({
@@ -34,17 +33,17 @@ export default function MapView({ activeIncident }) {
 
   const { data: assetGeoJSON } = useQuery({
     queryKey: ["mapAssets", selectedDMA],
-    queryFn: () => fetchMapAssets(selectedDMA),
+    queryFn: () => fetchMapAssets(selectedDMA!),
     enabled: !!selectedDMA,
   });
 
   const filterFeatures = useCallback(
-    (fc) => {
+    (fc: any) => {
       if (!fc?.features) return fc;
       if (filter === "ALL") return fc;
       return {
         ...fc,
-        features: fc.features.filter((f) => {
+        features: fc.features.filter((f: any) => {
           const rag = f.properties?.rag_status?.toUpperCase();
           if (filter === "ALARMED") return rag === "RED";
           if (filter === "CHANGED") return rag === "RED" || rag === "AMBER";
@@ -67,7 +66,6 @@ export default function MapView({ activeIncident }) {
     });
     map.addControl(new mapboxgl.NavigationControl(), "top-right");
     mapRef.current = map;
-
     return () => {
       map.remove();
       mapRef.current = null;
@@ -81,27 +79,19 @@ export default function MapView({ activeIncident }) {
 
     const loadData = () => {
       const fc = filterFeatures(geojson);
-
-      // Build fill/stroke color expressions
-      const fillExpr = [
-        "match",
-        ["get", "rag_status"],
-        "RED", RAG_FILL.RED,
-        "AMBER", RAG_FILL.AMBER,
-        "GREEN", RAG_FILL.GREEN,
+      const fillExpr: any = [
+        "match", ["get", "rag_status"],
+        "RED", RAG_FILL.RED, "AMBER", RAG_FILL.AMBER, "GREEN", RAG_FILL.GREEN,
         RAG_FILL.GREEN,
       ];
-      const strokeExpr = [
-        "match",
-        ["get", "rag_status"],
-        "RED", RAG_STROKE.RED,
-        "AMBER", RAG_STROKE.AMBER,
-        "GREEN", RAG_STROKE.GREEN,
+      const strokeExpr: any = [
+        "match", ["get", "rag_status"],
+        "RED", RAG_STROKE.RED, "AMBER", RAG_STROKE.AMBER, "GREEN", RAG_STROKE.GREEN,
         RAG_STROKE.GREEN,
       ];
 
       if (map.getSource("dma-polygons")) {
-        map.getSource("dma-polygons").setData(fc);
+        (map.getSource("dma-polygons") as mapboxgl.GeoJSONSource).setData(fc);
       } else {
         map.addSource("dma-polygons", { type: "geojson", data: fc });
         map.addLayer({
@@ -117,13 +107,10 @@ export default function MapView({ activeIncident }) {
           paint: { "line-color": strokeExpr, "line-width": 2 },
         });
 
-        // Click handler
         map.on("click", "dma-fill", (e) => {
           const props = e.features?.[0]?.properties;
           if (props?.dma_code) setSelectedDMA(props.dma_code);
         });
-
-        // Hover cursor
         map.on("mouseenter", "dma-fill", () => {
           map.getCanvas().style.cursor = "pointer";
         });
@@ -134,8 +121,6 @@ export default function MapView({ activeIncident }) {
             popupRef.current = null;
           }
         });
-
-        // Hover tooltip
         map.on("mousemove", "dma-fill", (e) => {
           const props = e.features?.[0]?.properties;
           if (!props) return;
@@ -149,10 +134,7 @@ export default function MapView({ activeIncident }) {
           if (popupRef.current) {
             popupRef.current.setLngLat(e.lngLat).setHTML(html);
           } else {
-            popupRef.current = new mapboxgl.Popup({
-              closeButton: false,
-              closeOnClick: false,
-            })
+            popupRef.current = new mapboxgl.Popup({ closeButton: false, closeOnClick: false })
               .setLngLat(e.lngLat)
               .setHTML(html)
               .addTo(map);
@@ -161,25 +143,20 @@ export default function MapView({ activeIncident }) {
       }
     };
 
-    if (map.loaded()) {
-      loadData();
-    } else {
-      map.on("load", loadData);
-    }
+    if (map.loaded()) loadData();
+    else map.on("load", loadData);
   }, [geojson, filter, filterFeatures]);
 
-  // Load asset overlays when DMA selected
+  // Load asset overlays
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
     const loadAssets = () => {
       if (map.getSource("dma-assets")) {
-        if (assetGeoJSON) {
-          map.getSource("dma-assets").setData(assetGeoJSON);
-        } else {
-          map.getSource("dma-assets").setData({ type: "FeatureCollection", features: [] });
-        }
+        (map.getSource("dma-assets") as mapboxgl.GeoJSONSource).setData(
+          assetGeoJSON || { type: "FeatureCollection", features: [] }
+        );
         return;
       }
       if (!assetGeoJSON) return;
@@ -200,11 +177,8 @@ export default function MapView({ activeIncident }) {
       });
     };
 
-    if (map.loaded()) {
-      loadAssets();
-    } else {
-      map.on("load", loadAssets);
-    }
+    if (map.loaded()) loadAssets();
+    else map.on("load", loadAssets);
   }, [assetGeoJSON]);
 
   if (isLoading) return <LoadingSpinner message="Loading network map..." />;
@@ -218,10 +192,8 @@ export default function MapView({ activeIncident }) {
 
   return (
     <div className="relative h-[calc(100vh-3.5rem)] flex">
-      {/* Map */}
       <div className="flex-1 relative">
         <div ref={mapContainer} className="absolute inset-0" />
-        {/* Filter bar */}
         <div className="absolute top-3 left-3 z-10 flex gap-1.5">
           {filterButtons.map((b) => (
             <button
@@ -239,7 +211,6 @@ export default function MapView({ activeIncident }) {
         </div>
       </div>
 
-      {/* Detail Panel */}
       {selectedDMA && (
         <div className="w-[420px] border-l border-gray-200 bg-white overflow-y-auto">
           <div className="p-4 border-b border-gray-100 flex items-center justify-between">
