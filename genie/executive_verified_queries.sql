@@ -12,14 +12,14 @@
 SELECT
   i.incident_id,
   i.dma_code,
-  i.properties_affected,
+  i.total_properties_affected,
   ROUND(
-    TIMESTAMPDIFF(MINUTE, i.detected_ts, COALESCE(i.resolved_ts, CURRENT_TIMESTAMP())) / 60.0, 1
+    TIMESTAMPDIFF(MINUTE, i.start_timestamp, COALESCE(i.end_timestamp, CURRENT_TIMESTAMP())) / 60.0, 1
   ) AS total_hours,
   ROUND(
-    i.properties_affected
+    i.total_properties_affected
     * GREATEST(
-        TIMESTAMPDIFF(MINUTE, i.detected_ts, COALESCE(i.resolved_ts, CURRENT_TIMESTAMP())) / 60.0 - 3,
+        TIMESTAMPDIFF(MINUTE, i.start_timestamp, COALESCE(i.end_timestamp, CURRENT_TIMESTAMP())) / 60.0 - 3,
         0
       )
     * 580,
@@ -38,8 +38,8 @@ SELECT
 FROM water_digital_twin.silver.dim_properties  p
 JOIN water_digital_twin.gold.dim_incidents     i ON p.dma_code = i.dma_code
 WHERE i.status = 'active'
-  AND i.detected_ts >= DATE_TRUNC('month', CURRENT_DATE())
-  AND TIMESTAMPDIFF(MINUTE, i.detected_ts, COALESCE(i.resolved_ts, CURRENT_TIMESTAMP())) > 180;
+  AND i.start_timestamp >= DATE_TRUNC('month', CURRENT_DATE())
+  AND TIMESTAMPDIFF(MINUTE, i.start_timestamp, COALESCE(i.end_timestamp, CURRENT_TIMESTAMP())) > 180;
 
 -- ---------------------------------------------------------------------------
 -- Q3: "Top 10 DMAs by incident count this year?"
@@ -48,12 +48,12 @@ WHERE i.status = 'active'
 SELECT
   dma_code,
   COUNT(*)                                         AS incident_count,
-  SUM(properties_affected)                         AS total_properties_affected,
+  SUM(total_properties_affected)                   AS total_properties_affected,
   ROUND(AVG(
-    TIMESTAMPDIFF(MINUTE, detected_ts, COALESCE(resolved_ts, CURRENT_TIMESTAMP())) / 60.0
+    TIMESTAMPDIFF(MINUTE, start_timestamp, COALESCE(end_timestamp, CURRENT_TIMESTAMP())) / 60.0
   ), 1)                                            AS avg_duration_hours
 FROM water_digital_twin.gold.dim_incidents
-WHERE detected_ts >= DATE_TRUNC('year', CURRENT_DATE())
+WHERE start_timestamp >= DATE_TRUNC('year', CURRENT_DATE())
 GROUP BY dma_code
 ORDER BY incident_count DESC
 LIMIT 10;
@@ -65,17 +65,17 @@ LIMIT 10;
 SELECT
   incident_id,
   dma_code,
-  detected_ts,
-  resolved_ts,
+  start_timestamp,
+  end_timestamp,
   status,
-  properties_affected,
+  total_properties_affected,
   ROUND(
-    TIMESTAMPDIFF(MINUTE, detected_ts, COALESCE(resolved_ts, CURRENT_TIMESTAMP())) / 60.0, 1
+    TIMESTAMPDIFF(MINUTE, start_timestamp, COALESCE(end_timestamp, CURRENT_TIMESTAMP())) / 60.0, 1
   ) AS duration_hours
 FROM water_digital_twin.gold.dim_incidents
-WHERE detected_ts >= CURRENT_DATE() - INTERVAL 30 DAYS
-  AND properties_affected > 100
-ORDER BY properties_affected DESC;
+WHERE start_timestamp >= CURRENT_DATE() - INTERVAL 30 DAYS
+  AND total_properties_affected > 100
+ORDER BY total_properties_affected DESC;
 
 -- ---------------------------------------------------------------------------
 -- Q5: "% of customers with proactive notification before complaining?"
@@ -93,7 +93,7 @@ SELECT
   ) AS proactive_pct
 FROM water_digital_twin.gold.dim_incidents          i
 JOIN water_digital_twin.gold.incident_notifications n ON i.incident_id = n.incident_id
-WHERE i.detected_ts >= DATE_TRUNC('quarter', CURRENT_DATE())
+WHERE i.start_timestamp >= DATE_TRUNC('quarter', CURRENT_DATE())
 ORDER BY proactive_pct DESC;
 
 -- ---------------------------------------------------------------------------
@@ -103,11 +103,10 @@ ORDER BY proactive_pct DESC;
 SELECT
   i.dma_code,
   p.property_type,
-  COUNT(*) AS affected_count,
-  COLLECT_LIST(p.property_name) AS property_names
+  COUNT(*) AS affected_count
 FROM water_digital_twin.gold.dim_incidents     i
 JOIN water_digital_twin.silver.dim_properties  p ON i.dma_code = p.dma_code
-WHERE i.detected_ts >= DATE_TRUNC('quarter', CURRENT_DATE())
+WHERE i.start_timestamp >= DATE_TRUNC('quarter', CURRENT_DATE())
   AND i.status IN ('active', 'resolved')
   AND p.property_type IN ('hospital', 'school')
 GROUP BY i.dma_code, p.property_type
@@ -120,26 +119,26 @@ ORDER BY i.dma_code, p.property_type;
 SELECT
   ROUND(
     AVG(
-      TIMESTAMPDIFF(MINUTE, i.detected_ts, r.dwi_notified_ts)
+      TIMESTAMPDIFF(MINUTE, i.start_timestamp, r.dwi_notified_ts)
     ) / 60.0,
     1
   ) AS avg_detection_to_dwi_hours,
   ROUND(
     MIN(
-      TIMESTAMPDIFF(MINUTE, i.detected_ts, r.dwi_notified_ts)
+      TIMESTAMPDIFF(MINUTE, i.start_timestamp, r.dwi_notified_ts)
     ) / 60.0,
     1
   ) AS min_hours,
   ROUND(
     MAX(
-      TIMESTAMPDIFF(MINUTE, i.detected_ts, r.dwi_notified_ts)
+      TIMESTAMPDIFF(MINUTE, i.start_timestamp, r.dwi_notified_ts)
     ) / 60.0,
     1
   ) AS max_hours
 FROM water_digital_twin.gold.dim_incidents            i
 JOIN water_digital_twin.gold.regulatory_notifications  r ON i.incident_id = r.incident_id
 WHERE r.dwi_notified_ts IS NOT NULL
-  AND i.detected_ts >= DATE_TRUNC('year', CURRENT_DATE());
+  AND i.start_timestamp >= DATE_TRUNC('year', CURRENT_DATE());
 
 -- ---------------------------------------------------------------------------
 -- Q8: "Incident frequency AMP8 vs AMP7 for top 10 DMAs?"
@@ -147,11 +146,11 @@ WHERE r.dwi_notified_ts IS NOT NULL
 -- ---------------------------------------------------------------------------
 SELECT
   dma_code,
-  SUM(CASE WHEN detected_ts BETWEEN '2020-04-01' AND '2025-03-31' THEN 1 ELSE 0 END) AS amp7_incidents,
-  SUM(CASE WHEN detected_ts >= '2025-04-01' THEN 1 ELSE 0 END)                        AS amp8_incidents,
+  SUM(CASE WHEN start_timestamp BETWEEN '2020-04-01' AND '2025-03-31' THEN 1 ELSE 0 END) AS amp7_incidents,
+  SUM(CASE WHEN start_timestamp >= '2025-04-01' THEN 1 ELSE 0 END)                        AS amp8_incidents,
   ROUND(
-    SUM(CASE WHEN detected_ts >= '2025-04-01' THEN 1 ELSE 0 END) * 100.0
-    / NULLIF(SUM(CASE WHEN detected_ts BETWEEN '2020-04-01' AND '2025-03-31' THEN 1 ELSE 0 END), 0),
+    SUM(CASE WHEN start_timestamp >= '2025-04-01' THEN 1 ELSE 0 END) * 100.0
+    / NULLIF(SUM(CASE WHEN start_timestamp BETWEEN '2020-04-01' AND '2025-03-31' THEN 1 ELSE 0 END), 0),
     1
   ) AS amp8_vs_amp7_pct
 FROM water_digital_twin.gold.dim_incidents

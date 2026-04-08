@@ -31,31 +31,30 @@
 # MAGIC %md
 # MAGIC ## Step 2 -- Add Trusted Assets
 # MAGIC 
-# MAGIC Add the following 9 tables and metric views as trusted assets.
-# MAGIC 
+# MAGIC Add the following 8 tables and metric views as trusted assets.
+# MAGIC
 # MAGIC ### Metric Views (gold schema)
-# MAGIC 
+# MAGIC
 # MAGIC | # | Asset | Description |
 # MAGIC |---|---|---|
-# MAGIC | 1 | `water_digital_twin.gold.mv_incident_duration` | Duration metrics for incidents |
-# MAGIC | 2 | `water_digital_twin.gold.mv_properties_affected` | Properties affected by incidents |
-# MAGIC | 3 | `water_digital_twin.gold.mv_penalty_exposure` | Estimated Ofwat penalty calculations |
-# MAGIC | 4 | `water_digital_twin.gold.mv_proactive_notification_rate` | Proactive vs reactive customer contact rates |
-# MAGIC 
+# MAGIC | 1 | `water_digital_twin.gold.mv_incident_summary` | Incident duration, threshold breaches, and properties affected |
+# MAGIC | 2 | `water_digital_twin.gold.mv_penalty_exposure` | Ofwat OPA penalty exposure (£580/property/hour beyond 3h) |
+# MAGIC | 3 | `water_digital_twin.gold.mv_regulatory_compliance` | RAG status distribution, property counts, sensitive premises |
+# MAGIC
 # MAGIC ### Gold Operational Tables
-# MAGIC 
+# MAGIC
 # MAGIC | # | Asset | Description |
 # MAGIC |---|---|---|
-# MAGIC | 5 | `water_digital_twin.gold.dim_incidents` | Active and historical incident records with properties affected |
-# MAGIC | 6 | `water_digital_twin.gold.incident_notifications` | Proactive notifications and reactive complaint counts per incident |
-# MAGIC | 7 | `water_digital_twin.gold.regulatory_notifications` | DWI and Ofwat notification timestamps and compliance tracking |
-# MAGIC 
+# MAGIC | 4 | `water_digital_twin.gold.dim_incidents` | Active and historical incident records with properties affected |
+# MAGIC | 5 | `water_digital_twin.gold.incident_notifications` | Proactive notifications and reactive complaint counts per incident |
+# MAGIC | 6 | `water_digital_twin.gold.regulatory_notifications` | DWI and Ofwat notification timestamps and compliance tracking |
+# MAGIC
 # MAGIC ### Silver Reference Tables
-# MAGIC 
+# MAGIC
 # MAGIC | # | Asset | Description |
 # MAGIC |---|---|---|
-# MAGIC | 8 | `water_digital_twin.silver.dim_properties` | Property register with types (residential, school, hospital, etc.) |
-# MAGIC | 9 | `water_digital_twin.silver.dim_dma` | DMA reference data for geographic context |
+# MAGIC | 7 | `water_digital_twin.silver.dim_properties` | Property register with types (residential, school, hospital, etc.) |
+# MAGIC | 8 | `water_digital_twin.silver.dim_dma` | DMA reference data for geographic context |
 
 # COMMAND ----------
 
@@ -152,4 +151,4 @@
 # MAGIC %md
 # MAGIC ## Next Step
 # MAGIC 
-# MAGIC Proceed to [05 -- Dashboard Guide](05_dashboard_guide.md) to create the executive Lakeview dashboard.
+# MAGIC Proceed to [05 -- Dashboard Guide](05_dashboard_guide.py) to create the executive Lakeview dashboard.

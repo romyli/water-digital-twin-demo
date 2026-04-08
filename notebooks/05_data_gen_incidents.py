@@ -17,6 +17,8 @@
 # MAGIC | Gold | `gold.dim_response_playbooks` |
 # MAGIC | Gold | `gold.shift_handovers` |
 # MAGIC | Gold | `gold.comms_requests` |
+# MAGIC | Gold | `gold.incident_notifications` |
+# MAGIC | Gold | `gold.regulatory_notifications` |
 
 # COMMAND ----------
 
@@ -619,6 +621,120 @@ print(f"Wrote {df_comms_req.count()} rows to {CATALOG}.gold.comms_requests")
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## Incident Notifications
+
+# COMMAND ----------
+
+# DBTITLE 1,Generate & Write Incident Notifications
+
+# Per-incident summary of proactive notifications vs reactive complaints.
+# Used by the executive Genie Space for C-MeX / proactive notification metrics.
+
+notification_records = [
+    {
+        "incident_id": "INC-2026-0407-001",
+        "proactive_notifications": 423,
+        "reactive_complaints": 47,
+    },
+    {
+        "incident_id": "INC-2025-1103-001",
+        "proactive_notifications": 0,
+        "reactive_complaints": 0,
+    },
+    {
+        "incident_id": "INC-2026-0115-001",
+        "proactive_notifications": 95,
+        "reactive_complaints": 12,
+    },
+    {
+        "incident_id": "INC-2025-1020-001",
+        "proactive_notifications": 60,
+        "reactive_complaints": 8,
+    },
+    {
+        "incident_id": "INC-2025-1208-001",
+        "proactive_notifications": 280,
+        "reactive_complaints": 25,
+    },
+    {
+        "incident_id": "INC-2026-0212-001",
+        "proactive_notifications": 50,
+        "reactive_complaints": 5,
+    },
+    {
+        "incident_id": "INC-2026-0305-001",
+        "proactive_notifications": 30,
+        "reactive_complaints": 3,
+    },
+    {
+        "incident_id": "INC-2026-0319-001",
+        "proactive_notifications": 120,
+        "reactive_complaints": 10,
+    },
+]
+
+df_notifications = spark.createDataFrame(pd.DataFrame(notification_records))
+df_notifications.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{CATALOG}.gold.incident_notifications")
+print(f"Wrote {df_notifications.count()} rows to {CATALOG}.gold.incident_notifications")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Regulatory Notifications
+
+# COMMAND ----------
+
+# DBTITLE 1,Generate & Write Regulatory Notifications
+
+# DWI and Ofwat notification timestamps per incident.
+# Only incidents exceeding 2 hours or affecting sensitive premises require DWI notification.
+
+regulatory_records = [
+    {
+        "notification_id": "REG-2026-0407-001",
+        "incident_id": "INC-2026-0407-001",
+        "regulator": "DWI",
+        "dwi_notified_ts": "2026-04-07 04:10:00",
+        "ofwat_notified_ts": "2026-04-07 05:15:00",
+        "notification_ref": "DWI-NOT-2026-0407-001",
+        "status": "acknowledged",
+    },
+    {
+        "notification_id": "REG-2025-1208-001",
+        "incident_id": "INC-2025-1208-001",
+        "regulator": "DWI",
+        "dwi_notified_ts": "2025-12-08 08:30:00",
+        "ofwat_notified_ts": "2025-12-08 09:00:00",
+        "notification_ref": "DWI-NOT-2025-1208-001",
+        "status": "acknowledged",
+    },
+    {
+        "notification_id": "REG-2026-0115-001",
+        "incident_id": "INC-2026-0115-001",
+        "regulator": "DWI",
+        "dwi_notified_ts": "2026-01-15 11:00:00",
+        "ofwat_notified_ts": None,
+        "notification_ref": "DWI-NOT-2026-0115-001",
+        "status": "acknowledged",
+    },
+    {
+        "notification_id": "REG-2026-0319-001",
+        "incident_id": "INC-2026-0319-001",
+        "regulator": "DWI",
+        "dwi_notified_ts": "2026-03-19 22:15:00",
+        "ofwat_notified_ts": None,
+        "notification_ref": "DWI-NOT-2026-0319-001",
+        "status": "acknowledged",
+    },
+]
+
+df_regulatory = spark.createDataFrame(pd.DataFrame(regulatory_records))
+df_regulatory.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{CATALOG}.gold.regulatory_notifications")
+print(f"Wrote {df_regulatory.count()} rows to {CATALOG}.gold.regulatory_notifications")
+
+# COMMAND ----------
+
 # DBTITLE 1,Validation Summary
 print("=== Incident & Operational Data Generation Complete ===")
 for table in [
@@ -628,6 +744,8 @@ for table in [
     "gold.dim_response_playbooks",
     "gold.shift_handovers",
     "gold.comms_requests",
+    "gold.incident_notifications",
+    "gold.regulatory_notifications",
 ]:
     count = spark.table(f"{CATALOG}.{table}").count()
     print(f"  {table}: {count} rows")

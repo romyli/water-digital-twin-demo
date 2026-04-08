@@ -31,38 +31,37 @@
 # MAGIC %md
 # MAGIC ## Step 2 -- Add Trusted Assets
 # MAGIC 
-# MAGIC Add the following 16 tables and metric views as trusted assets. These are the only objects Genie will use to answer questions.
-# MAGIC 
+# MAGIC Add the following 15 tables and metric views as trusted assets. These are the only objects Genie will use to answer questions.
+# MAGIC
 # MAGIC ### Metric Views (gold schema)
-# MAGIC 
+# MAGIC
 # MAGIC | # | Asset | Description |
 # MAGIC |---|---|---|
-# MAGIC | 1 | `water_digital_twin.gold.mv_pressure_avg_by_dma` | Average pressure by DMA over time |
-# MAGIC | 2 | `water_digital_twin.gold.mv_flow_rate_by_dma` | Flow rates aggregated by DMA |
-# MAGIC | 3 | `water_digital_twin.gold.mv_anomaly_count_by_dma` | Count of anomaly events per DMA |
-# MAGIC | 4 | `water_digital_twin.gold.mv_sensor_uptime` | Sensor availability and uptime metrics |
-# MAGIC | 5 | `water_digital_twin.gold.mv_dma_rag_summary` | RAG status summary across all DMAs |
-# MAGIC | 6 | `water_digital_twin.gold.mv_incident_duration` | Duration metrics for active and resolved incidents |
-# MAGIC | 7 | `water_digital_twin.gold.mv_properties_affected` | Properties affected by active incidents |
-# MAGIC | 8 | `water_digital_twin.gold.mv_reservoir_levels` | Current reservoir levels and trends |
+# MAGIC | 1 | `water_digital_twin.gold.mv_dma_pressure` | Average, min, and max pressure by DMA over time |
+# MAGIC | 2 | `water_digital_twin.gold.mv_flow_anomaly` | Flow rate deviation by DMA entry point |
+# MAGIC | 3 | `water_digital_twin.gold.mv_anomaly_scores` | Sensor-level anomaly scores and detection rates |
+# MAGIC | 4 | `water_digital_twin.gold.mv_sensor_status` | Sensor availability and uptime by DMA |
+# MAGIC | 5 | `water_digital_twin.gold.mv_regulatory_compliance` | RAG status distribution, property counts, sensitive premises |
+# MAGIC | 6 | `water_digital_twin.gold.mv_incident_summary` | Incident duration, threshold breaches, and properties affected |
+# MAGIC | 7 | `water_digital_twin.gold.mv_reservoir_status` | Reservoir levels, capacity, and estimated hours remaining |
 # MAGIC 
 # MAGIC ### Silver Dimension Tables
 # MAGIC 
 # MAGIC | # | Asset | Description |
 # MAGIC |---|---|---|
-# MAGIC | 9 | `water_digital_twin.silver.dim_dma` | DMA reference data (codes, names, centroids, boundaries) |
-# MAGIC | 10 | `water_digital_twin.silver.dim_sensor` | Sensor registry (IDs, types, locations, DMA assignments) |
-# MAGIC | 11 | `water_digital_twin.silver.dim_properties` | Property register (residential, schools, hospitals, etc.) |
-# MAGIC | 12 | `water_digital_twin.silver.dim_assets` | Infrastructure assets (pumps, valves, treatment works) |
-# MAGIC 
+# MAGIC | 8 | `water_digital_twin.silver.dim_dma` | DMA reference data (codes, names, centroids, boundaries) |
+# MAGIC | 9 | `water_digital_twin.silver.dim_sensor` | Sensor registry (IDs, types, locations, DMA assignments) |
+# MAGIC | 10 | `water_digital_twin.silver.dim_properties` | Property register (residential, schools, hospitals, etc.) |
+# MAGIC | 11 | `water_digital_twin.silver.dim_assets` | Infrastructure assets (pumps, valves, treatment works) |
+# MAGIC
 # MAGIC ### Gold Operational Tables
-# MAGIC 
+# MAGIC
 # MAGIC | # | Asset | Description |
 # MAGIC |---|---|---|
-# MAGIC | 13 | `water_digital_twin.gold.dma_status` | Current RAG status for every DMA |
-# MAGIC | 14 | `water_digital_twin.gold.dma_rag_history` | Historical RAG snapshots with pressure comparisons |
-# MAGIC | 15 | `water_digital_twin.gold.anomaly_scores` | Sensor-level anomaly scores (sigma-based) |
-# MAGIC | 16 | `water_digital_twin.gold.dim_incidents` | Active and historical incident records |
+# MAGIC | 12 | `water_digital_twin.gold.dma_status` | Current RAG status for every DMA |
+# MAGIC | 13 | `water_digital_twin.gold.dma_rag_history` | Historical RAG snapshots with pressure comparisons |
+# MAGIC | 14 | `water_digital_twin.gold.anomaly_scores` | Sensor-level anomaly scores (sigma-based) |
+# MAGIC | 15 | `water_digital_twin.gold.dim_incidents` | Active and historical incident records |
 
 # COMMAND ----------
 
@@ -163,4 +162,4 @@
 # MAGIC %md
 # MAGIC ## Next Step
 # MAGIC 
-# MAGIC Proceed to [04 -- Genie Executive Guide](04_genie_executive_guide.md) to create the executive Genie Space.
+# MAGIC Proceed to [04 -- Genie Executive Guide](04_genie_executive_guide.py) to create the executive Genie Space.

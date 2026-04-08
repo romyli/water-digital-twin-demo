@@ -8,16 +8,29 @@
 -- Q1: "Which DMAs had the biggest pressure drop in the last 6 hours?"
 -- Expected: DEMO_DMA_01 shows the largest drop (~45 m → ~8 m)
 -- ---------------------------------------------------------------------------
+WITH latest AS (
+  SELECT dma_code, avg_pressure, rag_status
+  FROM water_digital_twin.gold.dma_rag_history
+  WHERE timestamp = (SELECT MAX(timestamp) FROM water_digital_twin.gold.dma_rag_history)
+),
+earlier AS (
+  SELECT dma_code, avg_pressure
+  FROM water_digital_twin.gold.dma_rag_history
+  WHERE timestamp = (
+    SELECT MAX(timestamp) - INTERVAL 6 HOURS FROM water_digital_twin.gold.dma_rag_history
+  )
+)
 SELECT
-  r.dma_code,
+  l.dma_code,
   d.dma_name,
-  ROUND(r.avg_pressure_6h_ago, 1)  AS pressure_6h_ago_m,
-  ROUND(r.avg_pressure_now, 1)     AS pressure_now_m,
-  ROUND(r.avg_pressure_6h_ago - r.avg_pressure_now, 1) AS pressure_drop_m,
-  r.rag_status
-FROM water_digital_twin.gold.dma_rag_history  r
-JOIN water_digital_twin.silver.dim_dma        d ON r.dma_code = d.dma_code
-WHERE r.snapshot_ts >= CURRENT_TIMESTAMP() - INTERVAL 6 HOURS
+  ROUND(e.avg_pressure, 1)                   AS pressure_6h_ago_m,
+  ROUND(l.avg_pressure, 1)                   AS pressure_now_m,
+  ROUND(e.avg_pressure - l.avg_pressure, 1)  AS pressure_drop_m,
+  l.rag_status
+FROM latest l
+JOIN earlier e ON l.dma_code = e.dma_code
+JOIN water_digital_twin.silver.dim_dma d ON l.dma_code = d.dma_code
+WHERE e.avg_pressure - l.avg_pressure > 0
 ORDER BY pressure_drop_m DESC
 LIMIT 10;
 
@@ -39,15 +52,14 @@ ORDER BY property_type;
 -- Expected: ~45-55 m until ~02:00, then drops to ~5-10 m
 -- ---------------------------------------------------------------------------
 SELECT
-  event_ts,
+  timestamp,
   sensor_id,
-  ROUND(value, 2)  AS pressure_m,
-  unit
+  ROUND(value, 2) AS pressure_m
 FROM water_digital_twin.silver.fact_telemetry
 WHERE sensor_id = 'DEMO_SENSOR_01'
-  AND metric   = 'pressure'
-  AND event_ts >= CURRENT_TIMESTAMP() - INTERVAL 24 HOURS
-ORDER BY event_ts;
+  AND sensor_type = 'pressure'
+  AND timestamp >= CURRENT_TIMESTAMP() - INTERVAL 24 HOURS
+ORDER BY timestamp;
 
 -- ---------------------------------------------------------------------------
 -- Q4: "Which pump stations feed DMAs that are currently red?"
@@ -104,16 +116,16 @@ SELECT
   p.dma_code,
   COUNT(*)                                               AS properties_affected,
   ROUND(
-    TIMESTAMPDIFF(MINUTE, i.detected_ts, CURRENT_TIMESTAMP()) / 60.0, 1
+    TIMESTAMPDIFF(MINUTE, i.start_timestamp, CURRENT_TIMESTAMP()) / 60.0, 1
   )                                                      AS hours_without_supply
 FROM water_digital_twin.silver.dim_properties  p
 JOIN water_digital_twin.gold.dma_status        s ON p.dma_code = s.dma_code
 JOIN water_digital_twin.gold.dim_incidents     i ON s.dma_code = i.dma_code
 WHERE s.rag_status = 'RED'
   AND i.status     = 'active'
-  AND TIMESTAMPDIFF(MINUTE, i.detected_ts, CURRENT_TIMESTAMP()) > 180
+  AND TIMESTAMPDIFF(MINUTE, i.start_timestamp, CURRENT_TIMESTAMP()) > 180
 GROUP BY p.dma_code,
-         ROUND(TIMESTAMPDIFF(MINUTE, i.detected_ts, CURRENT_TIMESTAMP()) / 60.0, 1)
+         ROUND(TIMESTAMPDIFF(MINUTE, i.start_timestamp, CURRENT_TIMESTAMP()) / 60.0, 1)
 ORDER BY properties_affected DESC;
 
 -- ---------------------------------------------------------------------------
@@ -122,14 +134,14 @@ ORDER BY properties_affected DESC;
 -- ---------------------------------------------------------------------------
 SELECT
   p.property_id,
-  p.property_name,
+  p.address,
   p.dma_code,
   s.rag_status
 FROM water_digital_twin.silver.dim_properties  p
 JOIN water_digital_twin.gold.dma_status        s ON p.dma_code = s.dma_code
 WHERE p.property_type = 'school'
   AND s.rag_status IN ('RED', 'AMBER')
-ORDER BY p.dma_code, p.property_name;
+ORDER BY p.dma_code, p.address;
 
 -- ---------------------------------------------------------------------------
 -- Q9: "Flow rate at DEMO_DMA_01 entry at 2 am vs now?"
@@ -137,17 +149,16 @@ ORDER BY p.dma_code, p.property_name;
 -- ---------------------------------------------------------------------------
 SELECT
   sensor_id,
-  event_ts,
-  ROUND(value, 2) AS flow_rate_ls,
-  unit
+  timestamp,
+  ROUND(flow_rate, 2) AS flow_rate_ls
 FROM water_digital_twin.silver.fact_telemetry
 WHERE sensor_id IN ('DEMO_FLOW_01', 'DEMO_FLOW_02')
-  AND metric = 'flow_rate'
+  AND sensor_type = 'flow'
   AND (
-        event_ts BETWEEN TIMESTAMP '2026-04-07 02:00:00' AND TIMESTAMP '2026-04-07 02:05:00'
-     OR event_ts >= CURRENT_TIMESTAMP() - INTERVAL 5 MINUTES
+        timestamp BETWEEN TIMESTAMP '2026-04-07 02:00:00' AND TIMESTAMP '2026-04-07 02:05:00'
+     OR timestamp >= CURRENT_TIMESTAMP() - INTERVAL 5 MINUTES
   )
-ORDER BY sensor_id, event_ts;
+ORDER BY sensor_id, timestamp;
 
 -- ---------------------------------------------------------------------------
 -- Q10: "Sensors in DEMO_DMA_01 with anomaly scores > 3σ?"
@@ -155,12 +166,11 @@ ORDER BY sensor_id, event_ts;
 -- ---------------------------------------------------------------------------
 SELECT
   a.sensor_id,
-  s.sensor_name,
   s.sensor_type,
-  ROUND(a.anomaly_score, 2) AS anomaly_score_sigma,
-  a.scored_ts
+  ROUND(a.anomaly_sigma, 2) AS anomaly_score_sigma,
+  a.timestamp
 FROM water_digital_twin.gold.anomaly_scores    a
 JOIN water_digital_twin.silver.dim_sensor      s ON a.sensor_id = s.sensor_id
 WHERE s.dma_code = 'DEMO_DMA_01'
-  AND a.anomaly_score > 3
-ORDER BY a.anomaly_score DESC;
+  AND a.anomaly_sigma > 3
+ORDER BY a.anomaly_sigma DESC;

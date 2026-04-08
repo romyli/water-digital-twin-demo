@@ -235,7 +235,6 @@ def compute_dma_rag_history():
     dma_pressure = (
         fact_telemetry
         .filter(F.col("sensor_type") == "pressure")
-        .join(dim_sensor.select("sensor_id", "dma_code"), on="sensor_id", how="inner")
         .groupBy("dma_code", "timestamp")
         .agg(
             F.round(F.avg("value"), 2).alias("avg_pressure"),
@@ -355,7 +354,7 @@ def compute_dma_status():
     # Sensor counts per DMA (active sensors only)
     sensor_counts = (
         dim_sensor
-        .filter(F.col("is_active") == True)
+        .filter(F.col("status") == "active")
         .groupBy("dma_code")
         .agg(F.count("sensor_id").alias("sensor_count"))
     )
@@ -365,7 +364,7 @@ def compute_dma_status():
         dim_properties
         .groupBy("dma_code")
         .agg(
-            F.count("uprn").alias("property_count"),
+            F.count("property_id").alias("property_count"),
             F.sum(
                 F.when(
                     F.col("property_type").isin("hospital", "school", "dialysis_home"),
@@ -534,12 +533,9 @@ def compute_dma_summary():
     # Average flow per DMA (latest telemetry window)
     latest_flow_window = Window.partitionBy("dma_code").orderBy(F.desc("timestamp"))
     
-    flow_sensors = dim_sensor.filter(F.col("sensor_type") == "flow").select("sensor_id", "dma_code")
-    
     avg_flow_per_dma = (
         fact_telemetry
         .filter(F.col("sensor_type") == "flow")
-        .join(flow_sensors, on="sensor_id", how="inner")
         .groupBy("dma_code")
         .agg(F.round(F.avg("flow_rate"), 2).alias("avg_flow"))
     )
