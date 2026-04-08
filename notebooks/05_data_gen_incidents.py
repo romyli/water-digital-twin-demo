@@ -23,14 +23,12 @@
 # DBTITLE 1,Configuration
 import random
 import json
+import pandas as pd
 from datetime import datetime, timedelta
 
 CATALOG = "water_digital_twin"
 SEED = 42
 random.seed(SEED + 7000)
-
-# Ensure gold schema exists
-spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.gold")
 
 # COMMAND ----------
 
@@ -247,52 +245,8 @@ print(f"  DEMO_DMA_01 incidents: {sum(1 for i in incident_records if i['dma_code
 
 # DBTITLE 1,Write gold.dim_incidents
 
-from pyspark.sql.types import (
-    StructType, StructField, StringType, IntegerType, BooleanType, FloatType
-)
-
-incident_schema = StructType([
-    StructField("incident_id", StringType(), False),
-    StructField("dma_code", StringType(), False),
-    StructField("root_cause_asset_id", StringType(), True),
-    StructField("root_cause_asset_type", StringType(), True),
-    StructField("incident_type", StringType(), False),
-    StructField("title", StringType(), False),
-    StructField("description", StringType(), False),
-    StructField("start_timestamp", StringType(), False),
-    StructField("end_timestamp", StringType(), True),
-    StructField("status", StringType(), False),
-    StructField("severity", StringType(), False),
-    StructField("total_properties_affected", IntegerType(), False),
-    StructField("sensitive_premises_affected", BooleanType(), False),
-    StructField("priority_score", IntegerType(), False),
-    StructField("assigned_team", StringType(), False),
-    StructField("sop_reference", StringType(), True),
-    StructField("created_at", StringType(), False),
-    StructField("updated_at", StringType(), False),
-])
-
-incident_rows = [
-    (
-        i["incident_id"], i["dma_code"], i["root_cause_asset_id"],
-        i["root_cause_asset_type"], i["incident_type"], i["title"],
-        i["description"], i["start_timestamp"], i["end_timestamp"],
-        i["status"], i["severity"], i["total_properties_affected"],
-        i["sensitive_premises_affected"], i["priority_score"],
-        i["assigned_team"], i["sop_reference"],
-        i["created_at"], i["updated_at"],
-    )
-    for i in incident_records
-]
-
-df_incidents = spark.createDataFrame(incident_rows, schema=incident_schema)
-(
-    df_incidents.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"{CATALOG}.gold.dim_incidents")
-)
+df_incidents = spark.createDataFrame(pd.DataFrame(incident_records))
+df_incidents.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{CATALOG}.gold.dim_incidents")
 print(f"Wrote {df_incidents.count()} rows to {CATALOG}.gold.dim_incidents")
 
 # COMMAND ----------
@@ -403,29 +357,8 @@ print(f"Incident events: {len(event_records)}")
 
 # DBTITLE 1,Write gold.incident_events
 
-event_schema = StructType([
-    StructField("event_id", StringType(), False),
-    StructField("incident_id", StringType(), False),
-    StructField("event_type", StringType(), False),
-    StructField("event_timestamp", StringType(), False),
-    StructField("description", StringType(), False),
-    StructField("actor", StringType(), False),
-    StructField("metadata", StringType(), True),
-])
-
-event_rows = [
-    (e["event_id"], e["incident_id"], e["event_type"], e["event_timestamp"], e["description"], e["actor"], e["metadata"])
-    for e in event_records
-]
-
-df_events = spark.createDataFrame(event_rows, schema=event_schema)
-(
-    df_events.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"{CATALOG}.gold.incident_events")
-)
+df_events = spark.createDataFrame(pd.DataFrame(event_records))
+df_events.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{CATALOG}.gold.incident_events")
 print(f"Wrote {df_events.count()} rows to {CATALOG}.gold.incident_events")
 
 # COMMAND ----------
@@ -490,32 +423,8 @@ print(f"Communications log entries: {len(comms_records)}")
 
 # DBTITLE 1,Write gold.communications_log
 
-comms_schema = StructType([
-    StructField("comms_id", StringType(), False),
-    StructField("incident_id", StringType(), False),
-    StructField("comms_timestamp", StringType(), False),
-    StructField("recipient_role", StringType(), False),
-    StructField("recipient_name", StringType(), False),
-    StructField("channel", StringType(), False),
-    StructField("direction", StringType(), False),
-    StructField("summary", StringType(), False),
-    StructField("status", StringType(), False),
-])
-
-comms_rows = [
-    (c["comms_id"], c["incident_id"], c["comms_timestamp"], c["recipient_role"],
-     c["recipient_name"], c["channel"], c["direction"], c["summary"], c["status"])
-    for c in comms_records
-]
-
-df_comms = spark.createDataFrame(comms_rows, schema=comms_schema)
-(
-    df_comms.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"{CATALOG}.gold.communications_log")
-)
+df_comms = spark.createDataFrame(pd.DataFrame(comms_records))
+df_comms.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{CATALOG}.gold.communications_log")
 print(f"Wrote {df_comms.count()} rows to {CATALOG}.gold.communications_log")
 
 # COMMAND ----------
@@ -601,40 +510,8 @@ print(f"Action steps in SOP-WN-042: {len(action_steps)}")
 
 # DBTITLE 1,Write gold.dim_response_playbooks
 
-playbook_schema = StructType([
-    StructField("playbook_id", StringType(), False),
-    StructField("sop_reference", StringType(), False),
-    StructField("incident_type", StringType(), False),
-    StructField("title", StringType(), False),
-    StructField("description", StringType(), False),
-    StructField("action_steps", StringType(), False),
-    StructField("total_steps", IntegerType(), False),
-    StructField("max_sla_minutes", IntegerType(), False),
-    StructField("version", StringType(), False),
-    StructField("effective_date", StringType(), False),
-    StructField("review_date", StringType(), False),
-    StructField("owner", StringType(), False),
-    StructField("created_at", StringType(), False),
-])
-
-playbook_rows = [
-    (
-        p["playbook_id"], p["sop_reference"], p["incident_type"], p["title"],
-        p["description"], p["action_steps"], p["total_steps"],
-        p["max_sla_minutes"], p["version"], p["effective_date"],
-        p["review_date"], p["owner"], p["created_at"],
-    )
-    for p in playbook_records
-]
-
-df_playbooks = spark.createDataFrame(playbook_rows, schema=playbook_schema)
-(
-    df_playbooks.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"{CATALOG}.gold.dim_response_playbooks")
-)
+df_playbooks = spark.createDataFrame(pd.DataFrame(playbook_records))
+df_playbooks.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{CATALOG}.gold.dim_response_playbooks")
 print(f"Wrote {df_playbooks.count()} rows to {CATALOG}.gold.dim_response_playbooks")
 
 # COMMAND ----------
@@ -701,38 +578,8 @@ print(f"Handover records: {len(handover_records)}")
 
 # DBTITLE 1,Write gold.shift_handovers
 
-handover_schema = StructType([
-    StructField("handover_id", StringType(), False),
-    StructField("incident_id", StringType(), False),
-    StructField("outgoing_operator", StringType(), False),
-    StructField("incoming_operator", StringType(), False),
-    StructField("handover_timestamp", StringType(), False),
-    StructField("signed_off_timestamp", StringType(), False),
-    StructField("acknowledged_timestamp", StringType(), False),
-    StructField("risk_of_escalation", StringType(), False),
-    StructField("trajectory", StringType(), False),
-    StructField("summary", StringType(), False),
-    StructField("status", StringType(), False),
-])
-
-handover_rows = [
-    (
-        h["handover_id"], h["incident_id"], h["outgoing_operator"],
-        h["incoming_operator"], h["handover_timestamp"],
-        h["signed_off_timestamp"], h["acknowledged_timestamp"],
-        h["risk_of_escalation"], h["trajectory"], h["summary"], h["status"],
-    )
-    for h in handover_records
-]
-
-df_handovers = spark.createDataFrame(handover_rows, schema=handover_schema)
-(
-    df_handovers.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"{CATALOG}.gold.shift_handovers")
-)
+df_handovers = spark.createDataFrame(pd.DataFrame(handover_records))
+df_handovers.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{CATALOG}.gold.shift_handovers")
 print(f"Wrote {df_handovers.count()} rows to {CATALOG}.gold.shift_handovers")
 
 # COMMAND ----------
@@ -766,41 +613,8 @@ comms_request_records = [
     }
 ]
 
-comms_req_schema = StructType([
-    StructField("request_id", StringType(), False),
-    StructField("incident_id", StringType(), False),
-    StructField("dma_code", StringType(), False),
-    StructField("request_timestamp", StringType(), False),
-    StructField("customer_count", IntegerType(), False),
-    StructField("channels", StringType(), False),
-    StructField("message_template", StringType(), False),
-    StructField("message_summary", StringType(), False),
-    StructField("status", StringType(), False),
-    StructField("sent_timestamp", StringType(), True),
-    StructField("delivery_rate_pct", FloatType(), True),
-    StructField("requested_by", StringType(), False),
-    StructField("approved_by", StringType(), True),
-])
-
-comms_req_rows = [
-    (
-        cr["request_id"], cr["incident_id"], cr["dma_code"],
-        cr["request_timestamp"], cr["customer_count"], cr["channels"],
-        cr["message_template"], cr["message_summary"], cr["status"],
-        cr["sent_timestamp"], float(cr["delivery_rate_pct"]),
-        cr["requested_by"], cr["approved_by"],
-    )
-    for cr in comms_request_records
-]
-
-df_comms_req = spark.createDataFrame(comms_req_rows, schema=comms_req_schema)
-(
-    df_comms_req.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"{CATALOG}.gold.comms_requests")
-)
+df_comms_req = spark.createDataFrame(pd.DataFrame(comms_request_records))
+df_comms_req.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{CATALOG}.gold.comms_requests")
 print(f"Wrote {df_comms_req.count()} rows to {CATALOG}.gold.comms_requests")
 
 # COMMAND ----------

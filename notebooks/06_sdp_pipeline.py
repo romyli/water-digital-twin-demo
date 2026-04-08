@@ -1,25 +1,20 @@
 # Databricks notebook source
 
 # MAGIC %md
-# MAGIC # 06 — Spark Declarative Pipeline (SDP/DLT): Bronze → Silver
+# MAGIC # 06 — Spark Declarative Pipeline: Files → Bronze → Silver → Gold
 # MAGIC
-# MAGIC This notebook defines the production-grade SDP (DLT) pipeline for the Water Digital Twin demo.
-# MAGIC It transforms raw Bronze-layer data into cleansed Silver-layer tables with data quality expectations
-# MAGIC and geospatial enrichment.
+# MAGIC Full medallion SDP pipeline. Auto Loader ingests JSON files from the landing zone
+# MAGIC volume into Bronze streaming tables, then transforms to Silver materialized views,
+# MAGIC then aggregates into Gold materialized views.
 # MAGIC
-# MAGIC **Catalog:** `water_digital_twin`
+# MAGIC **Pipeline config:** catalog = `water_digital_twin`, no fixed target schema.
+# MAGIC Tables are placed in `bronze`, `silver`, or `gold` via qualified names.
 # MAGIC
-# MAGIC ## Note on Data Generation Notebooks
-# MAGIC The data generation notebooks (01-05) write directly to both Bronze and Silver tables for
-# MAGIC convenience during demo setup. This SDP pipeline serves as the **production-grade alternative**
-# MAGIC that enforces schema validation, data quality expectations, and referential integrity.
-# MAGIC When running the full demo, you can either:
-# MAGIC 1. Use the data gen notebooks for a quick one-time load, OR
-# MAGIC 2. Load only Bronze tables and let this SDP pipeline handle all Bronze → Silver transformations.
+# MAGIC **API:** `pyspark.pipelines` (Spark Declarative Pipelines).
 
 # COMMAND ----------
 
-import dlt
+from pyspark import pipelines as dp
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType, StringType
 
@@ -31,224 +26,245 @@ from pyspark.sql.types import DoubleType, StringType
 # COMMAND ----------
 
 CATALOG = "water_digital_twin"
+VOLUME = f"/Volumes/{CATALOG}/bronze/landing_zone"
 
-# H3 resolution constants
-H3_RESOLUTION_ENTITY = 8   # For sensors, properties (fine-grained)
-H3_RESOLUTION_DMA = 7      # For DMA centroids (coarser)
+H3_RESOLUTION_ENTITY = 8
+H3_RESOLUTION_DMA = 7
 
-# Default pressure thresholds (metres head)
 DEFAULT_RED_THRESHOLD = 15.0
 DEFAULT_AMBER_THRESHOLD = 25.0
 
-# Valid enums
-VALID_STATUS_ENUM = ["operational", "tripped", "failed", "maintenance", "decommissioned"]
-VALID_PROPERTY_TYPES = [
-    "domestic", "school", "hospital", "commercial",
-    "nursery", "key_account", "dialysis_home"
-]
-VALID_COMPLAINT_TYPES = ["no_water", "low_pressure", "discoloured_water", "other"]
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ---
+# MAGIC # Bronze Layer — Auto Loader Ingestion
+# MAGIC
+# MAGIC Streaming tables that ingest JSON files from the landing zone volume.
+
+# COMMAND ----------
+
+@dp.table(name="bronze.raw_telemetry")
+def raw_telemetry():
+    return (
+        spark.readStream.format("cloudFiles")
+        .option("cloudFiles.format", "json")
+        .option("cloudFiles.inferColumnTypes", "true")
+        .load(f"{VOLUME}/raw_telemetry")
+    )
+
+# COMMAND ----------
+
+@dp.table(name="bronze.raw_dma_boundaries")
+def raw_dma_boundaries():
+    return (
+        spark.readStream.format("cloudFiles")
+        .option("cloudFiles.format", "json")
+        .option("cloudFiles.inferColumnTypes", "true")
+        .load(f"{VOLUME}/raw_dma_boundaries")
+    )
+
+# COMMAND ----------
+
+@dp.table(name="bronze.raw_pma_boundaries")
+def raw_pma_boundaries():
+    return (
+        spark.readStream.format("cloudFiles")
+        .option("cloudFiles.format", "json")
+        .option("cloudFiles.inferColumnTypes", "true")
+        .load(f"{VOLUME}/raw_pma_boundaries")
+    )
+
+# COMMAND ----------
+
+@dp.table(name="bronze.raw_assets")
+def raw_assets():
+    return (
+        spark.readStream.format("cloudFiles")
+        .option("cloudFiles.format", "json")
+        .option("cloudFiles.inferColumnTypes", "true")
+        .load(f"{VOLUME}/raw_assets")
+    )
+
+# COMMAND ----------
+
+@dp.table(name="bronze.raw_customer_contacts")
+def raw_customer_contacts():
+    return (
+        spark.readStream.format("cloudFiles")
+        .option("cloudFiles.format", "json")
+        .option("cloudFiles.inferColumnTypes", "true")
+        .load(f"{VOLUME}/raw_customer_contacts")
+    )
+
+# COMMAND ----------
+
+@dp.table(name="bronze.raw_complaints")
+def raw_complaints():
+    return (
+        spark.readStream.format("cloudFiles")
+        .option("cloudFiles.format", "json")
+        .option("cloudFiles.inferColumnTypes", "true")
+        .load(f"{VOLUME}/raw_complaints")
+    )
+
+# COMMAND ----------
+
+@dp.table(name="bronze.raw_sensors")
+def raw_sensors():
+    return (
+        spark.readStream.format("cloudFiles")
+        .option("cloudFiles.format", "json")
+        .option("cloudFiles.inferColumnTypes", "true")
+        .load(f"{VOLUME}/raw_sensors")
+    )
+
+# COMMAND ----------
+
+@dp.table(name="bronze.raw_reservoirs")
+def raw_reservoirs():
+    return (
+        spark.readStream.format("cloudFiles")
+        .option("cloudFiles.format", "json")
+        .option("cloudFiles.inferColumnTypes", "true")
+        .load(f"{VOLUME}/raw_reservoirs")
+    )
+
+# COMMAND ----------
+
+@dp.table(name="bronze.raw_asset_dma_feed")
+def raw_asset_dma_feed():
+    return (
+        spark.readStream.format("cloudFiles")
+        .option("cloudFiles.format", "json")
+        .option("cloudFiles.inferColumnTypes", "true")
+        .load(f"{VOLUME}/raw_asset_dma_feed")
+    )
+
+# COMMAND ----------
+
+@dp.table(name="bronze.raw_reservoir_dma_feed")
+def raw_reservoir_dma_feed():
+    return (
+        spark.readStream.format("cloudFiles")
+        .option("cloudFiles.format", "json")
+        .option("cloudFiles.inferColumnTypes", "true")
+        .load(f"{VOLUME}/raw_reservoir_dma_feed")
+    )
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Bronze → Silver: Streaming Telemetry
-# MAGIC
-# MAGIC Stream `bronze.raw_telemetry` → `silver.fact_telemetry`
-# MAGIC - Join with `dim_sensor` to add `sensor_type`
-# MAGIC - Split `value` into pressure fields (`value`, `total_head_pressure`) and flow field (`flow_rate`)
+# MAGIC ---
+# MAGIC # Silver Layer — Cleansed Dimensions & Facts
 
 # COMMAND ----------
 
-@dlt.table(
-    name="fact_telemetry",
-    schema=f"{CATALOG}.silver",
-    comment="Cleansed sensor telemetry — 15-minute intervals with sensor type enrichment",
-    table_properties={
-        "quality": "silver",
-        "pipelines.autoOptimize.zOrderCols": "sensor_id,timestamp"
-    }
-)
-@dlt.expect("sensor_value_range_pressure",
-            "sensor_type != 'pressure' OR (value BETWEEN 0 AND 120)")
-@dlt.expect("sensor_value_range_flow",
-            "sensor_type != 'flow' OR (flow_rate BETWEEN 0 AND 500)")
+# MAGIC %md
+# MAGIC ## fact_telemetry
+# MAGIC
+# MAGIC Splits raw `value` into pressure and flow fields.
+
+# COMMAND ----------
+
+@dp.table(name="silver.fact_telemetry")
+@dp.expect("pressure_in_range", "sensor_type != 'pressure' OR (value BETWEEN 0 AND 120)")
+@dp.expect("flow_in_range", "sensor_type != 'flow' OR (flow_rate BETWEEN 0 AND 500)")
 def fact_telemetry():
-    """
-    Stream raw telemetry from Bronze, enrich with sensor_type from dim_sensor,
-    and split value into pressure/flow fields.
-    """
-    raw_telemetry = dlt.read_stream(f"{CATALOG}.bronze.raw_telemetry")
+    raw = spark.readStream.table("bronze.raw_telemetry")
 
-    # Read dim_sensor as a static table for the broadcast join
-    dim_sensor = spark.read.table(f"{CATALOG}.silver.dim_sensor").select(
-        "sensor_id", "sensor_type"
-    )
-
-    enriched = (
-        raw_telemetry
-        .join(F.broadcast(dim_sensor), on="sensor_id", how="left")
-        .withColumn(
-            "sensor_type",
-            F.coalesce(F.col("sensor_type"), F.lit("unknown"))
-        )
-        # For pressure sensors: keep value, set total_head_pressure = value
+    return (
+        raw
         .withColumn(
             "total_head_pressure",
             F.when(F.col("sensor_type") == "pressure", F.col("value"))
-             .otherwise(F.lit(None).cast(DoubleType()))
         )
-        # For flow sensors: map raw value to flow_rate
         .withColumn(
             "flow_rate",
             F.when(F.col("sensor_type") == "flow", F.col("value"))
-             .otherwise(F.lit(None).cast(DoubleType()))
         )
-        # Null out the generic value column for flow sensors
         .withColumn(
             "value",
             F.when(F.col("sensor_type") == "pressure", F.col("value"))
-             .otherwise(F.lit(None).cast(DoubleType()))
         )
         .select(
-            "sensor_id",
-            "timestamp",
-            "sensor_type",
-            "value",
-            "total_head_pressure",
-            "flow_rate",
-            "quality_flag"
+            "sensor_id", "dma_code", "timestamp", "sensor_type",
+            "value", "total_head_pressure", "flow_rate", "quality_flag"
         )
     )
-
-    return enriched
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Bronze → Silver: DMA Boundaries
+# MAGIC ## dim_dma
 # MAGIC
-# MAGIC Batch `bronze.raw_dma_boundaries` → `silver.dim_dma`
-# MAGIC - Compute centroid lat/lon from WKT polygon geometry
-# MAGIC - Add average elevation (placeholder; in production from DEM dataset)
-# MAGIC - Compute H3 index at resolution 7 for centroid
-# MAGIC - Set default pressure thresholds (RED < 15.0m, AMBER < 25.0m)
+# MAGIC DMA boundaries with centroid, H3 index, and pressure thresholds.
 
 # COMMAND ----------
 
-@dlt.table(
-    name="dim_dma",
-    schema=f"{CATALOG}.silver",
-    comment="Cleansed DMA dimension — 500 DMAs with centroids, H3 index, and default thresholds",
-    table_properties={"quality": "silver"}
-)
-@dlt.expect_or_drop("null_geometry", "geometry_wkt IS NOT NULL")
+@dp.materialized_view(name="silver.dim_dma")
+@dp.expect_or_drop("has_geometry", "geometry_wkt IS NOT NULL")
 def dim_dma():
-    """
-    Batch load DMA boundaries from Bronze and enrich with centroid, H3 index,
-    and default pressure thresholds.
-    """
-    raw_dma = dlt.read(f"{CATALOG}.bronze.raw_dma_boundaries")
+    raw = spark.read.table("bronze.raw_dma_boundaries")
 
-    enriched = (
-        raw_dma
-        # Parse WKT polygon and compute centroid
+    return (
+        raw
         .withColumn("geom", F.expr("ST_GeomFromWKT(geometry_wkt)"))
         .withColumn("centroid", F.expr("ST_Centroid(geom)"))
         .withColumn("centroid_latitude", F.expr("ST_Y(centroid)"))
         .withColumn("centroid_longitude", F.expr("ST_X(centroid)"))
-        # Average elevation — placeholder; in production derived from a DEM dataset
-        .withColumn("avg_elevation", F.lit(50.0).cast(DoubleType()))
-        # H3 index at resolution 7 for DMA centroid
         .withColumn(
             "h3_index",
-            F.expr(f"h3_pointash3(centroid_latitude, centroid_longitude, {H3_RESOLUTION_DMA})")
+            F.expr(f"h3_pointash3(concat('POINT(', centroid_longitude, ' ', centroid_latitude, ')'), {H3_RESOLUTION_DMA})")
         )
-        # Default pressure thresholds (metres head)
         .withColumn("pressure_red_threshold", F.lit(DEFAULT_RED_THRESHOLD))
         .withColumn("pressure_amber_threshold", F.lit(DEFAULT_AMBER_THRESHOLD))
         .select(
-            "dma_code",
-            "dma_name",
-            "dma_area_code",
-            "geometry_wkt",
-            "centroid_latitude",
-            "centroid_longitude",
-            "avg_elevation",
-            "h3_index",
-            "pressure_red_threshold",
-            "pressure_amber_threshold"
+            "dma_code", "dma_name", "dma_area_code", "geometry_wkt",
+            "centroid_latitude", "centroid_longitude", "avg_elevation",
+            "h3_index", "pressure_red_threshold", "pressure_amber_threshold"
         )
     )
-
-    return enriched
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Bronze → Silver: PMA Boundaries
-# MAGIC
-# MAGIC Batch `bronze.raw_pma_boundaries` → `silver.dim_pma`
-# MAGIC - Compute centroid lat/lon from WKT polygon geometry
+# MAGIC ## dim_pma
 
 # COMMAND ----------
 
-@dlt.table(
-    name="dim_pma",
-    schema=f"{CATALOG}.silver",
-    comment="Cleansed PMA dimension — ~100 PMAs with centroid coordinates",
-    table_properties={"quality": "silver"}
-)
-@dlt.expect_or_drop("null_geometry", "geometry_wkt IS NOT NULL")
+@dp.materialized_view(name="silver.dim_pma")
+@dp.expect_or_drop("has_geometry", "geometry_wkt IS NOT NULL")
 def dim_pma():
-    """
-    Batch load PMA boundaries from Bronze and compute centroid coordinates.
-    """
-    raw_pma = dlt.read(f"{CATALOG}.bronze.raw_pma_boundaries")
+    raw = spark.read.table("bronze.raw_pma_boundaries")
 
-    enriched = (
-        raw_pma
+    return (
+        raw
         .withColumn("geom", F.expr("ST_GeomFromWKT(geometry_wkt)"))
         .withColumn("centroid", F.expr("ST_Centroid(geom)"))
         .withColumn("centroid_latitude", F.expr("ST_Y(centroid)"))
         .withColumn("centroid_longitude", F.expr("ST_X(centroid)"))
         .select(
-            "pma_code",
-            "pma_name",
-            "dma_code",
-            "geometry_wkt",
-            "centroid_latitude",
-            "centroid_longitude"
+            "pma_code", "pma_name", "dma_code", "geometry_wkt",
+            "centroid_latitude", "centroid_longitude"
         )
     )
-
-    return enriched
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Bronze → Silver: Assets
+# MAGIC ## dim_assets
 # MAGIC
-# MAGIC Batch `bronze.raw_assets` → `silver.dim_assets`
-# MAGIC - Normalise status to standard enum: `operational`, `tripped`, `failed`, `maintenance`, `decommissioned`
-# MAGIC - Parse additional fields from `metadata_json`
+# MAGIC Normalises status enum.
 
 # COMMAND ----------
 
-@dlt.table(
-    name="dim_assets",
-    schema=f"{CATALOG}.silver",
-    comment="Cleansed asset dimension — pump stations, trunk mains, valves, PRVs",
-    table_properties={"quality": "silver"}
-)
-@dlt.expect_or_drop("null_geometry", "geometry_wkt IS NOT NULL")
+@dp.materialized_view(name="silver.dim_assets")
+@dp.expect_or_drop("has_geometry", "geometry_wkt IS NOT NULL")
 def dim_assets():
-    """
-    Batch load assets from Bronze, normalise status values, and parse geometry.
-    """
-    raw_assets = dlt.read(f"{CATALOG}.bronze.raw_assets")
+    raw = spark.read.table("bronze.raw_assets")
 
-    # Normalise raw status strings to the standard enum
-    status_normalised = (
+    status_norm = (
         F.when(F.lower(F.col("status")).isin("operational", "active", "running", "online"), "operational")
          .when(F.lower(F.col("status")).isin("tripped", "trip"), "tripped")
          .when(F.lower(F.col("status")).isin("failed", "failure", "broken"), "failed")
@@ -257,183 +273,216 @@ def dim_assets():
          .otherwise("operational")
     )
 
-    enriched = (
-        raw_assets
-        .withColumn("status", status_normalised)
-        # Extract structured fields from metadata_json
-        .withColumn(
-            "diameter_inches",
-            F.get_json_object(F.col("metadata_json"), "$.diameter_inches").cast("int")
-        )
-        .withColumn(
-            "length_km",
-            F.get_json_object(F.col("metadata_json"), "$.length_km").cast("double")
-        )
-        .withColumn(
-            "trip_timestamp",
-            F.get_json_object(F.col("metadata_json"), "$.trip_timestamp").cast("timestamp")
-        )
-        .withColumn(
-            "installed_date",
-            F.get_json_object(F.col("metadata_json"), "$.installed_date").cast("date")
-        )
+    return (
+        raw
+        .withColumn("status", status_norm)
         .select(
-            "asset_id",
-            "asset_type",
-            "name",
-            "status",
-            "latitude",
-            "longitude",
-            "geometry_wkt",
-            "diameter_inches",
-            "length_km",
-            "trip_timestamp",
-            "installed_date"
+            "asset_id", "asset_type", "asset_name", "dma_code", "status",
+            "latitude", "longitude", "elevation_m", "geometry_wkt",
+            "diameter_inches", "length_km", "trip_timestamp", "install_date",
+            "manufacturer", "model", "capacity_kw", "last_maintenance", "notes"
         )
     )
-
-    return enriched
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Bronze → Silver: Customer Contacts → Properties
+# MAGIC ## dim_properties
 # MAGIC
-# MAGIC Batch `bronze.raw_customer_contacts` → `silver.dim_properties`
-# MAGIC - Normalise `property_type` to standard enum
-# MAGIC - Generate WKT POINT geometry from lat/lon
-# MAGIC - Compute H3 index at resolution 8
+# MAGIC Normalises property types, generates WKT geometry, computes H3 index.
 
 # COMMAND ----------
 
-@dlt.table(
-    name="dim_properties",
-    schema=f"{CATALOG}.silver",
-    comment="Cleansed property dimension — 50,000 properties with normalised types and H3 index",
-    table_properties={"quality": "silver"}
-)
-@dlt.expect("referential_integrity_dma", "dma_code IS NOT NULL")
+@dp.materialized_view(name="silver.dim_properties")
+@dp.expect("has_dma", "dma_code IS NOT NULL")
 def dim_properties():
-    """
-    Batch load customer contacts from Bronze, normalise property types,
-    generate WKT geometry, and compute H3 index.
-    """
-    raw_contacts = dlt.read(f"{CATALOG}.bronze.raw_customer_contacts")
+    raw = spark.read.table("bronze.raw_customer_contacts")
 
-    # Normalise property_type to standard enum
-    property_type_normalised = (
-        F.when(F.lower(F.col("property_type")).isin(
-            "domestic", "residential", "house", "flat"), "domestic")
-         .when(F.lower(F.col("property_type")).isin(
-            "school", "primary_school", "secondary_school", "academy"), "school")
-         .when(F.lower(F.col("property_type")).isin(
-            "hospital", "clinic", "medical_centre", "health_centre"), "hospital")
-         .when(F.lower(F.col("property_type")).isin(
-            "commercial", "business", "office", "retail"), "commercial")
-         .when(F.lower(F.col("property_type")).isin(
-            "nursery", "childcare", "creche"), "nursery")
-         .when(F.lower(F.col("property_type")).isin(
-            "key_account", "key-account", "critical_infrastructure"), "key_account")
-         .when(F.lower(F.col("property_type")).isin(
-            "dialysis_home", "dialysis", "home_dialysis"), "dialysis_home")
+    prop_type_norm = (
+        F.when(F.lower(F.col("property_type")).isin("domestic", "residential", "house", "flat"), "domestic")
+         .when(F.lower(F.col("property_type")).isin("school", "primary_school", "secondary_school", "academy"), "school")
+         .when(F.lower(F.col("property_type")).isin("hospital", "clinic", "medical_centre", "health_centre"), "hospital")
+         .when(F.lower(F.col("property_type")).isin("commercial", "business", "office", "retail"), "commercial")
+         .when(F.lower(F.col("property_type")).isin("nursery", "childcare", "creche"), "nursery")
+         .when(F.lower(F.col("property_type")).isin("key_account", "key-account", "critical_infrastructure"), "key_account")
+         .when(F.lower(F.col("property_type")).isin("dialysis_home", "dialysis", "home_dialysis"), "dialysis_home")
          .otherwise("domestic")
     )
 
-    enriched = (
-        raw_contacts
-        .withColumn("property_type", property_type_normalised)
-        # Generate WKT POINT geometry from coordinates
-        .withColumn(
-            "geometry_wkt",
-            F.concat(
-                F.lit("POINT("),
-                F.col("longitude").cast(StringType()),
-                F.lit(" "),
-                F.col("latitude").cast(StringType()),
-                F.lit(")")
-            )
-        )
-        # H3 index at resolution 8 for fine-grained spatial grouping
+    return (
+        raw
+        .withColumn("property_type", prop_type_norm)
+        .withColumn("geometry_wkt", F.concat(F.lit("POINT("), F.col("longitude"), F.lit(" "), F.col("latitude"), F.lit(")")))
         .withColumn(
             "h3_index",
-            F.expr(f"h3_pointash3(latitude, longitude, {H3_RESOLUTION_ENTITY})")
+            F.expr(f"h3_pointash3(concat('POINT(', longitude, ' ', latitude, ')'), {H3_RESOLUTION_ENTITY})")
         )
         .select(
-            "uprn",
-            "address",
-            "postcode",
-            "property_type",
-            "dma_code",
-            F.lit(None).cast(StringType()).alias("pma_code"),
-            "customer_height",
-            "latitude",
-            "longitude",
-            "geometry_wkt",
-            "h3_index"
+            "property_id", "address", "postcode", "property_type", "dma_code",
+            "customer_height_m", "elevation_m", "latitude", "longitude",
+            "occupants", "is_sensitive_premise", "geometry_wkt", "h3_index"
         )
     )
-
-    return enriched
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Bronze → Silver: Customer Complaints
-# MAGIC
-# MAGIC Batch `bronze.raw_complaints` → `silver.customer_complaints`
-# MAGIC - Validate and normalise `complaint_type` to allowed enum values
+# MAGIC ## customer_complaints
 
 # COMMAND ----------
 
-@dlt.table(
-    name="customer_complaints",
-    schema=f"{CATALOG}.silver",
-    comment="Cleansed customer complaints with validated complaint types",
-    table_properties={"quality": "silver"}
-)
-@dlt.expect("complaint_type_valid",
-            "complaint_type IN ('no_water', 'low_pressure', 'discoloured_water', 'other')")
-@dlt.expect("referential_integrity_dma", "dma_code IS NOT NULL")
+@dp.materialized_view(name="silver.customer_complaints")
+@dp.expect("valid_complaint_type", "complaint_type IN ('no_water', 'low_pressure', 'discoloured_water', 'other')")
+@dp.expect("has_dma", "dma_code IS NOT NULL")
 def customer_complaints():
-    """
-    Batch load complaints from Bronze, normalise complaint_type to the standard enum.
-    """
-    raw_complaints = dlt.read(f"{CATALOG}.bronze.raw_complaints")
+    raw = spark.read.table("bronze.raw_complaints")
 
-    # Normalise complaint_type to standard enum
-    complaint_type_normalised = (
-        F.when(F.lower(F.col("complaint_type")).isin(
-            "no_water", "no water", "supply_loss"), "no_water")
-         .when(F.lower(F.col("complaint_type")).isin(
-            "low_pressure", "low pressure", "weak_flow"), "low_pressure")
-         .when(F.lower(F.col("complaint_type")).isin(
-            "discoloured_water", "discoloured", "brown_water", "dirty_water"), "discoloured_water")
+    complaint_norm = (
+        F.when(F.lower(F.col("complaint_type")).isin("no_water", "no water", "supply_loss"), "no_water")
+         .when(F.lower(F.col("complaint_type")).isin("low_pressure", "low pressure", "weak_flow"), "low_pressure")
+         .when(F.lower(F.col("complaint_type")).isin("discoloured_water", "discoloured", "brown_water", "dirty_water"), "discoloured_water")
          .otherwise("other")
     )
 
-    cleansed = (
-        raw_complaints
-        .withColumn("complaint_type", complaint_type_normalised)
+    return (
+        raw
+        .withColumn("complaint_type", complaint_norm)
         .select(
-            "complaint_id",
-            "uprn",
-            "dma_code",
-            "complaint_timestamp",
-            "complaint_type"
+            "complaint_id", "property_id", "dma_code", "complaint_timestamp",
+            "complaint_type", "description", "contact_channel",
+            "customer_height_m", "property_type", "status"
         )
     )
-
-    return cleansed
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Data Quality Expectations Summary
+# MAGIC ## dim_sensor
+
+# COMMAND ----------
+
+@dp.materialized_view(name="silver.dim_sensor")
+@dp.expect("has_dma", "dma_code IS NOT NULL")
+def dim_sensor():
+    return spark.read.table("bronze.raw_sensors")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## dim_asset_dma_feed
+
+# COMMAND ----------
+
+@dp.materialized_view(name="silver.dim_asset_dma_feed")
+def dim_asset_dma_feed():
+    return spark.read.table("bronze.raw_asset_dma_feed")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## dim_reservoirs
+
+# COMMAND ----------
+
+@dp.materialized_view(name="silver.dim_reservoirs")
+def dim_reservoirs():
+    return spark.read.table("bronze.raw_reservoirs")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## dim_reservoir_dma_feed
+
+# COMMAND ----------
+
+@dp.materialized_view(name="silver.dim_reservoir_dma_feed")
+def dim_reservoir_dma_feed():
+    return spark.read.table("bronze.raw_reservoir_dma_feed")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ---
+# MAGIC # Gold Layer — Aggregated Views
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## vw_dma_pressure
 # MAGIC
-# MAGIC | Expectation | Rule | Action |
-# MAGIC |---|---|---|
-# MAGIC | `sensor_value_range_pressure` | Pressure BETWEEN 0 AND 120 | EXPECT (warn, keep row) |
-# MAGIC | `sensor_value_range_flow` | Flow rate BETWEEN 0 AND 500 | EXPECT (warn, keep row) |
-# MAGIC | `null_geometry` | `geometry_wkt IS NOT NULL` | EXPECT OR DROP (remove row) |
-# MAGIC | `referential_integrity_dma` | `dma_code IS NOT NULL` | EXPECT (warn, keep row) |
-# MAGIC | `complaint_type_valid` | complaint_type IN valid enum | EXPECT (warn, keep row) |
+# MAGIC Aggregated pressure metrics per DMA per timestamp.
+
+# COMMAND ----------
+
+@dp.materialized_view(name="gold.vw_dma_pressure")
+def vw_dma_pressure():
+    telemetry = spark.read.table("silver.fact_telemetry")
+    dma = spark.read.table("silver.dim_dma")
+
+    return (
+        telemetry
+        .filter(F.col("sensor_type") == "pressure")
+        .groupBy("dma_code", "timestamp")
+        .agg(
+            F.avg("value").alias("avg_pressure"),
+            F.max("value").alias("max_pressure"),
+            F.min("value").alias("min_pressure"),
+            F.avg("total_head_pressure").alias("avg_total_head_pressure"),
+            F.count("*").alias("reading_count"),
+        )
+        .join(F.broadcast(dma.select("dma_code", "dma_name")), on="dma_code", how="left")
+    )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## vw_reservoir_status
+# MAGIC
+# MAGIC Reservoir capacity and hours remaining, joined with fed DMAs.
+
+# COMMAND ----------
+
+@dp.materialized_view(name="gold.vw_reservoir_status")
+def vw_reservoir_status():
+    reservoirs = spark.read.table("silver.dim_reservoirs")
+    feeds = spark.read.table("silver.dim_reservoir_dma_feed")
+    dma = spark.read.table("silver.dim_dma")
+
+    return (
+        reservoirs
+        .join(feeds, on="reservoir_id", how="inner")
+        .join(F.broadcast(dma.select("dma_code", "dma_name")), on="dma_code", how="left")
+        .select(
+            "reservoir_id", "reservoir_name", "dma_code",
+            F.col("dma_name").alias("fed_dma_name"),
+            "feed_type", "current_level_pct", "capacity_ml",
+            "hourly_demand_rate_ml", "hours_remaining",
+        )
+    )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## vw_property_pressure
+# MAGIC
+# MAGIC Per-property effective pressure accounting for customer elevation.
+
+# COMMAND ----------
+
+@dp.materialized_view(name="gold.vw_property_pressure")
+def vw_property_pressure():
+    props = spark.read.table("silver.dim_properties")
+    telemetry = spark.read.table("silver.fact_telemetry")
+
+    return (
+        props.select("property_id", "dma_code", "property_type", "customer_height_m")
+        .join(
+            telemetry.filter(F.col("sensor_type") == "pressure")
+                     .select("dma_code", "timestamp", "total_head_pressure"),
+            on="dma_code", how="inner"
+        )
+        .withColumn(
+            "effective_pressure",
+            F.col("total_head_pressure") - F.col("customer_height_m")
+        )
+    )

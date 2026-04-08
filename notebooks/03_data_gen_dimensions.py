@@ -9,16 +9,16 @@
 # MAGIC Generates sensors, properties, assets, asset-DMA feed mappings, and reservoirs.
 # MAGIC
 # MAGIC **Outputs:**
-# MAGIC | Layer | Table | Row Count |
-# MAGIC |-------|-------|-----------|
-# MAGIC | Silver | `silver.dim_sensor` | 10,000 |
-# MAGIC | Bronze | `bronze.raw_customer_contacts` | 50,000 |
-# MAGIC | Silver | `silver.dim_properties` | 50,000 |
-# MAGIC | Bronze | `bronze.raw_assets` | 30+ |
-# MAGIC | Silver | `silver.dim_assets` | 30+ |
-# MAGIC | Silver | `silver.dim_asset_dma_feed` | mappings |
-# MAGIC | Silver | `silver.dim_reservoirs` | 20 |
-# MAGIC | Silver | `silver.dim_reservoir_dma_feed` | mappings |
+# MAGIC | Target | Path | Row Count |
+# MAGIC |--------|------|-----------|
+# MAGIC | Volume | `landing_zone/raw_sensors/` | 10,000 |
+# MAGIC | Volume | `landing_zone/raw_customer_contacts/` | 50,000 |
+# MAGIC | Volume | `landing_zone/raw_assets/` | 30+ |
+# MAGIC | Volume | `landing_zone/raw_asset_dma_feed/` | mappings |
+# MAGIC | Volume | `landing_zone/raw_reservoirs/` | 20 |
+# MAGIC | Volume | `landing_zone/raw_reservoir_dma_feed/` | mappings |
+# MAGIC
+# MAGIC Bronze/Silver/Gold tables are created by the SDP pipeline (`06_sdp_pipeline`).
 
 # COMMAND ----------
 
@@ -27,18 +27,20 @@ import math
 import random
 import json
 from datetime import datetime
+import pandas as pd
 
 CATALOG = "water_digital_twin"
+VOLUME = f"/Volumes/{CATALOG}/bronze/landing_zone"
 SEED = 42
 
-# Read DMA data from geography notebook
-df_dma = spark.table(f"{CATALOG}.silver.dim_dma").cache()
+# Read DMA data from Volume (written by NB02)
+df_dma = spark.read.json(f"{VOLUME}/raw_dma_boundaries")
 dma_rows = df_dma.collect()
 dma_lookup = {row["dma_code"]: row for row in dma_rows}
 
 print(f"Loaded {len(dma_rows)} DMAs")
 demo_dma_01 = dma_lookup["DEMO_DMA_01"]
-print(f"DEMO_DMA_01: {demo_dma_01['dma_name']} at ({demo_dma_01['centroid_lat']}, {demo_dma_01['centroid_lon']})")
+print(f"DEMO_DMA_01: {demo_dma_01['dma_name']} at ({demo_dma_01['centroid_latitude']}, {demo_dma_01['centroid_longitude']})")
 
 # Constants
 KM_PER_DEG_LAT = 111.32
@@ -67,9 +69,9 @@ sensor_counter = {"pressure": 0, "flow": 0}
 
 # --- DEMO_DMA_01 sensors first ---
 demo_dma = dma_lookup["DEMO_DMA_01"]
-demo_lat = demo_dma["centroid_lat"]
-demo_lon = demo_dma["centroid_lon"]
-demo_elev = demo_dma["elevation_m"]
+demo_lat = demo_dma["centroid_latitude"]
+demo_lon = demo_dma["centroid_longitude"]
+demo_elev = demo_dma["avg_elevation"]
 
 # DEMO_SENSOR_01 — the key pressure sensor at low elevation (15 m)
 sensor_records.append({
@@ -140,9 +142,9 @@ for i, dma_code in enumerate(other_dma_codes):
             "sensor_id": f"PS_{sensor_counter['pressure']:06d}",
             "sensor_type": "pressure",
             "dma_code": dma_code,
-            "latitude": round(dma["centroid_lat"] + random.uniform(-0.008, 0.008), 6),
-            "longitude": round(dma["centroid_lon"] + random.uniform(-0.008, 0.008), 6),
-            "elevation_m": round(max(2.0, dma["elevation_m"] + random.uniform(-15, 15)), 1),
+            "latitude": round(dma["centroid_latitude"] + random.uniform(-0.008, 0.008), 6),
+            "longitude": round(dma["centroid_longitude"] + random.uniform(-0.008, 0.008), 6),
+            "elevation_m": round(max(2.0, dma["avg_elevation"] + random.uniform(-15, 15)), 1),
             "install_date": f"20{random.randint(18,24)}-{random.randint(1,12):02d}-{random.randint(1,28):02d}",
             "manufacturer": random.choice(["Siemens", "ABB", "Endress+Hauser", "Honeywell"]),
             "model": random.choice(["SITRANS P320", "266GST", "Cerabar PMC71", "SmartLine ST800"]),
@@ -163,9 +165,9 @@ for i, dma_code in enumerate(other_dma_codes):
             "sensor_id": f"FS_{sensor_counter['flow']:06d}",
             "sensor_type": "flow",
             "dma_code": dma_code,
-            "latitude": round(dma["centroid_lat"] + random.uniform(-0.008, 0.008), 6),
-            "longitude": round(dma["centroid_lon"] + random.uniform(-0.008, 0.008), 6),
-            "elevation_m": round(max(2.0, dma["elevation_m"] + random.uniform(-10, 10)), 1),
+            "latitude": round(dma["centroid_latitude"] + random.uniform(-0.008, 0.008), 6),
+            "longitude": round(dma["centroid_longitude"] + random.uniform(-0.008, 0.008), 6),
+            "elevation_m": round(max(2.0, dma["avg_elevation"] + random.uniform(-10, 10)), 1),
             "install_date": f"20{random.randint(18,24)}-{random.randint(1,12):02d}-{random.randint(1,28):02d}",
             "manufacturer": random.choice(["ABB", "Siemens", "Itron"]),
             "model": random.choice(["AquaMaster4", "SITRANS FM MAG 8000", "Flostar M"]),
@@ -180,43 +182,11 @@ print(f"  DEMO_DMA_01: {sum(1 for s in sensor_records if s['dma_code'] == 'DEMO_
 
 # COMMAND ----------
 
-# DBTITLE 1,Write silver.dim_sensor
+# DBTITLE 1,Write raw_sensors to Volume
 
-from pyspark.sql.types import StructType, StructField, StringType, DoubleType, FloatType
-
-sensor_schema = StructType([
-    StructField("sensor_id", StringType(), False),
-    StructField("sensor_type", StringType(), False),
-    StructField("dma_code", StringType(), False),
-    StructField("latitude", DoubleType(), False),
-    StructField("longitude", DoubleType(), False),
-    StructField("elevation_m", FloatType(), False),
-    StructField("install_date", StringType(), False),
-    StructField("manufacturer", StringType(), False),
-    StructField("model", StringType(), False),
-    StructField("status", StringType(), False),
-    StructField("last_calibration", StringType(), False),
-])
-
-sensor_rows = [
-    (
-        s["sensor_id"], s["sensor_type"], s["dma_code"],
-        s["latitude"], s["longitude"], float(s["elevation_m"]),
-        s["install_date"], s["manufacturer"], s["model"],
-        s["status"], s["last_calibration"],
-    )
-    for s in sensor_records
-]
-
-df_sensors = spark.createDataFrame(sensor_rows, schema=sensor_schema)
-(
-    df_sensors.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"{CATALOG}.silver.dim_sensor")
-)
-print(f"Wrote {df_sensors.count()} rows to {CATALOG}.silver.dim_sensor")
+path = f"{VOLUME}/raw_sensors"
+spark.createDataFrame(pd.DataFrame(sensor_records)).write.format("json").mode("overwrite").save(path)
+print(f"Wrote {len(sensor_records)} sensor records to {path}")
 
 # COMMAND ----------
 
@@ -246,9 +216,9 @@ property_counter = 0
 
 # --- DEMO_DMA_01 properties ---
 demo_dma = dma_lookup["DEMO_DMA_01"]
-d_lat = demo_dma["centroid_lat"]
-d_lon = demo_dma["centroid_lon"]
-d_elev = demo_dma["elevation_m"]
+d_lat = demo_dma["centroid_latitude"]
+d_lon = demo_dma["centroid_longitude"]
+d_elev = demo_dma["avg_elevation"]
 
 # Ensure required counts: 750 domestic, 2+ schools, 1+ hospital, 3+ dialysis_home, 15+ commercial
 demo_type_counts = {
@@ -331,9 +301,9 @@ for i, dma_code in enumerate(other_dma_codes):
                 ptype = pt
                 break
 
-        plat = round(dma["centroid_lat"] + random.uniform(-0.008, 0.008), 6)
-        plon = round(dma["centroid_lon"] + random.uniform(-0.008, 0.008), 6)
-        customer_height = round(random.uniform(3, max(10, dma["elevation_m"])), 1)
+        plat = round(dma["centroid_latitude"] + random.uniform(-0.008, 0.008), 6)
+        plon = round(dma["centroid_longitude"] + random.uniform(-0.008, 0.008), 6)
+        customer_height = round(random.uniform(3, max(10, dma["avg_elevation"])), 1)
         is_sensitive = ptype in ("school", "hospital", "dialysis_home", "care_home")
 
         street = random.choice(STREET_NAMES)
@@ -344,11 +314,11 @@ for i, dma_code in enumerate(other_dma_codes):
             "dma_code": dma_code,
             "property_type": ptype,
             "address": f"{house_num} {street}",
-            "postcode": f"{'SE' if dma['centroid_lat'] < 51.5 else 'N'}{random.randint(1,28)} {random.randint(1,9)}{random.choice('ABCDEFGHJKLMNPRSTUVWXY')}{random.choice('ABCDEFGHJKLMNPRSTUVWXY')}",
+            "postcode": f"{'SE' if dma['centroid_latitude'] < 51.5 else 'N'}{random.randint(1,28)} {random.randint(1,9)}{random.choice('ABCDEFGHJKLMNPRSTUVWXY')}{random.choice('ABCDEFGHJKLMNPRSTUVWXY')}",
             "latitude": plat,
             "longitude": plon,
             "customer_height_m": customer_height,
-            "elevation_m": round(max(2.0, dma["elevation_m"] + random.uniform(-15, 15)), 1),
+            "elevation_m": round(max(2.0, dma["avg_elevation"] + random.uniform(-15, 15)), 1),
             "occupants": random.randint(1, 6) if ptype == "domestic" else random.randint(10, 500),
             "is_sensitive_premise": is_sensitive,
             "contact_phone": f"07{random.randint(100,999)}{random.randint(100000,999999)}",
@@ -368,80 +338,11 @@ print(f"    Height > 35m: {sum(1 for p in demo_props if p['customer_height_m'] >
 
 # COMMAND ----------
 
-# DBTITLE 1,Write bronze.raw_customer_contacts
+# DBTITLE 1,Write raw_customer_contacts to Volume
 
-from pyspark.sql.types import StructType, StructField, StringType, DoubleType, FloatType, IntegerType, BooleanType
-
-contact_schema = StructType([
-    StructField("property_id", StringType(), False),
-    StructField("dma_code", StringType(), False),
-    StructField("property_type", StringType(), False),
-    StructField("address", StringType(), False),
-    StructField("postcode", StringType(), False),
-    StructField("latitude", DoubleType(), False),
-    StructField("longitude", DoubleType(), False),
-    StructField("contact_phone", StringType(), True),
-    StructField("contact_email", StringType(), True),
-    StructField("created_at", StringType(), False),
-])
-
-contact_rows = [
-    (
-        p["property_id"], p["dma_code"], p["property_type"],
-        p["address"], p["postcode"], p["latitude"], p["longitude"],
-        p["contact_phone"], p["contact_email"], p["created_at"],
-    )
-    for p in property_records
-]
-
-df_contacts = spark.createDataFrame(contact_rows, schema=contact_schema)
-(
-    df_contacts.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"{CATALOG}.bronze.raw_customer_contacts")
-)
-print(f"Wrote {df_contacts.count()} rows to {CATALOG}.bronze.raw_customer_contacts")
-
-# COMMAND ----------
-
-# DBTITLE 1,Write silver.dim_properties
-
-prop_schema = StructType([
-    StructField("property_id", StringType(), False),
-    StructField("dma_code", StringType(), False),
-    StructField("property_type", StringType(), False),
-    StructField("address", StringType(), False),
-    StructField("postcode", StringType(), False),
-    StructField("latitude", DoubleType(), False),
-    StructField("longitude", DoubleType(), False),
-    StructField("customer_height_m", FloatType(), False),
-    StructField("elevation_m", FloatType(), False),
-    StructField("occupants", IntegerType(), False),
-    StructField("is_sensitive_premise", BooleanType(), False),
-    StructField("created_at", StringType(), False),
-])
-
-prop_rows = [
-    (
-        p["property_id"], p["dma_code"], p["property_type"],
-        p["address"], p["postcode"], p["latitude"], p["longitude"],
-        float(p["customer_height_m"]), float(p["elevation_m"]),
-        p["occupants"], p["is_sensitive_premise"], p["created_at"],
-    )
-    for p in property_records
-]
-
-df_props = spark.createDataFrame(prop_rows, schema=prop_schema)
-(
-    df_props.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"{CATALOG}.silver.dim_properties")
-)
-print(f"Wrote {df_props.count()} rows to {CATALOG}.silver.dim_properties")
+path = f"{VOLUME}/raw_customer_contacts"
+spark.createDataFrame(pd.DataFrame(property_records)).write.format("json").mode("overwrite").save(path)
+print(f"Wrote {len(property_records)} property records to {path}")
 
 # COMMAND ----------
 
@@ -639,64 +540,11 @@ for atype in ["pump_station", "trunk_main", "isolation_valve", "prv"]:
 
 # COMMAND ----------
 
-# DBTITLE 1,Write bronze.raw_assets & silver.dim_assets
+# DBTITLE 1,Write raw_assets to Volume
 
-asset_schema = StructType([
-    StructField("asset_id", StringType(), False),
-    StructField("asset_type", StringType(), False),
-    StructField("asset_name", StringType(), False),
-    StructField("dma_code", StringType(), False),
-    StructField("latitude", DoubleType(), False),
-    StructField("longitude", DoubleType(), False),
-    StructField("elevation_m", FloatType(), False),
-    StructField("status", StringType(), False),
-    StructField("trip_timestamp", StringType(), True),
-    StructField("install_date", StringType(), False),
-    StructField("manufacturer", StringType(), False),
-    StructField("model", StringType(), False),
-    StructField("capacity_kw", FloatType(), True),
-    StructField("diameter_inches", FloatType(), True),
-    StructField("length_km", FloatType(), True),
-    StructField("geometry_wkt", StringType(), False),
-    StructField("last_maintenance", StringType(), False),
-    StructField("notes", StringType(), True),
-])
-
-asset_rows = [
-    (
-        a["asset_id"], a["asset_type"], a["asset_name"], a["dma_code"],
-        a["latitude"], a["longitude"], float(a["elevation_m"]),
-        a["status"], a["trip_timestamp"], a["install_date"],
-        a["manufacturer"], a["model"],
-        float(a["capacity_kw"]) if a["capacity_kw"] is not None else None,
-        float(a["diameter_inches"]) if a["diameter_inches"] is not None else None,
-        float(a["length_km"]) if a["length_km"] is not None else None,
-        a["geometry_wkt"], a["last_maintenance"], a["notes"],
-    )
-    for a in asset_records
-]
-
-df_assets = spark.createDataFrame(asset_rows, schema=asset_schema)
-
-# Bronze
-(
-    df_assets.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"{CATALOG}.bronze.raw_assets")
-)
-print(f"Wrote {df_assets.count()} rows to {CATALOG}.bronze.raw_assets")
-
-# Silver (same data, curated layer)
-(
-    df_assets.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"{CATALOG}.silver.dim_assets")
-)
-print(f"Wrote {df_assets.count()} rows to {CATALOG}.silver.dim_assets")
+path = f"{VOLUME}/raw_assets"
+spark.createDataFrame(pd.DataFrame(asset_records)).write.format("json").mode("overwrite").save(path)
+print(f"Wrote {len(asset_records)} asset records to {path}")
 
 # COMMAND ----------
 
@@ -733,25 +581,11 @@ print(f"Total asset-DMA feed mappings: {len(feed_records)}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Write silver.dim_asset_dma_feed
+# DBTITLE 1,Write raw_asset_dma_feed to Volume
 
-feed_schema = StructType([
-    StructField("asset_id", StringType(), False),
-    StructField("dma_code", StringType(), False),
-    StructField("feed_type", StringType(), False),
-    StructField("notes", StringType(), True),
-])
-
-feed_rows = [(f["asset_id"], f["dma_code"], f["feed_type"], f["notes"]) for f in feed_records]
-df_feed = spark.createDataFrame(feed_rows, schema=feed_schema)
-(
-    df_feed.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"{CATALOG}.silver.dim_asset_dma_feed")
-)
-print(f"Wrote {df_feed.count()} rows to {CATALOG}.silver.dim_asset_dma_feed")
+path = f"{VOLUME}/raw_asset_dma_feed"
+spark.createDataFrame(pd.DataFrame(feed_records)).write.format("json").mode("overwrite").save(path)
+print(f"Wrote {len(feed_records)} feed records to {path}")
 
 # COMMAND ----------
 
@@ -832,44 +666,11 @@ print(f"DEMO_SR_01: capacity={demo_sr['capacity_ml']}ML, level={demo_sr['current
 
 # COMMAND ----------
 
-# DBTITLE 1,Write silver.dim_reservoirs
+# DBTITLE 1,Write raw_reservoirs to Volume
 
-res_schema = StructType([
-    StructField("reservoir_id", StringType(), False),
-    StructField("reservoir_name", StringType(), False),
-    StructField("latitude", DoubleType(), False),
-    StructField("longitude", DoubleType(), False),
-    StructField("elevation_m", FloatType(), False),
-    StructField("capacity_ml", FloatType(), False),
-    StructField("current_level_pct", FloatType(), False),
-    StructField("current_volume_ml", FloatType(), False),
-    StructField("hourly_demand_rate_ml", FloatType(), False),
-    StructField("hours_remaining", FloatType(), False),
-    StructField("status", StringType(), False),
-    StructField("last_inspection", StringType(), False),
-    StructField("notes", StringType(), True),
-])
-
-res_rows = [
-    (
-        r["reservoir_id"], r["reservoir_name"], r["latitude"], r["longitude"],
-        float(r["elevation_m"]), float(r["capacity_ml"]),
-        float(r["current_level_pct"]), float(r["current_volume_ml"]),
-        float(r["hourly_demand_rate_ml"]), float(r["hours_remaining"]),
-        r["status"], r["last_inspection"], r["notes"],
-    )
-    for r in reservoir_records
-]
-
-df_reservoirs = spark.createDataFrame(res_rows, schema=res_schema)
-(
-    df_reservoirs.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"{CATALOG}.silver.dim_reservoirs")
-)
-print(f"Wrote {df_reservoirs.count()} rows to {CATALOG}.silver.dim_reservoirs")
+path = f"{VOLUME}/raw_reservoirs"
+spark.createDataFrame(pd.DataFrame(reservoir_records)).write.format("json").mode("overwrite").save(path)
+print(f"Wrote {len(reservoir_records)} reservoir records to {path}")
 
 # COMMAND ----------
 
@@ -890,7 +691,7 @@ for res in reservoir_records[1:]:
     num_fed = random.randint(3, 8)
     # Pick DMAs geographically nearest to the reservoir
     dma_dists = [
-        (code, (dma_lookup[code]["centroid_lat"] - res["latitude"])**2 + (dma_lookup[code]["centroid_lon"] - res["longitude"])**2)
+        (code, (dma_lookup[code]["centroid_latitude"] - res["latitude"])**2 + (dma_lookup[code]["centroid_longitude"] - res["longitude"])**2)
         for code in all_dma_codes
     ]
     dma_dists.sort(key=lambda x: x[1])
@@ -903,22 +704,9 @@ for res in reservoir_records[1:]:
 
 print(f"Total reservoir-DMA feed mappings: {len(res_dma_feeds)}")
 
-res_dma_schema = StructType([
-    StructField("reservoir_id", StringType(), False),
-    StructField("dma_code", StringType(), False),
-    StructField("feed_type", StringType(), False),
-])
-
-res_dma_rows = [(f["reservoir_id"], f["dma_code"], f["feed_type"]) for f in res_dma_feeds]
-df_res_dma = spark.createDataFrame(res_dma_rows, schema=res_dma_schema)
-(
-    df_res_dma.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"{CATALOG}.silver.dim_reservoir_dma_feed")
-)
-print(f"Wrote {df_res_dma.count()} rows to {CATALOG}.silver.dim_reservoir_dma_feed")
+path = f"{VOLUME}/raw_reservoir_dma_feed"
+spark.createDataFrame(pd.DataFrame(res_dma_feeds)).write.format("json").mode("overwrite").save(path)
+print(f"Wrote {len(res_dma_feeds)} reservoir-DMA feed records to {path}")
 
 # COMMAND ----------
 
@@ -931,6 +719,5 @@ print(f"  Asset-DMA feeds: {len(feed_records)}")
 print(f"  Reservoirs: {len(reservoir_records)}")
 print(f"  Reservoir-DMA feeds: {len(res_dma_feeds)}")
 
-display(spark.sql(f"SELECT sensor_id, sensor_type, dma_code, elevation_m FROM {CATALOG}.silver.dim_sensor WHERE sensor_id LIKE 'DEMO%'"))
-display(spark.sql(f"SELECT asset_id, asset_type, status, trip_timestamp FROM {CATALOG}.silver.dim_assets WHERE asset_id LIKE 'DEMO%'"))
-display(spark.sql(f"SELECT * FROM {CATALOG}.silver.dim_reservoirs WHERE reservoir_id = 'DEMO_SR_01'"))
+display(spark.read.json(f"{VOLUME}/raw_sensors").filter("sensor_id LIKE 'DEMO%'").select("sensor_id", "sensor_type", "dma_code", "elevation_m"))
+display(spark.read.json(f"{VOLUME}/raw_assets").filter("asset_id LIKE 'DEMO%'").select("asset_id", "asset_type", "status", "trip_timestamp"))

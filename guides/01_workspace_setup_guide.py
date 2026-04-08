@@ -132,31 +132,43 @@
 # MAGIC ```
 # MAGIC 
 # MAGIC ### C2. Create Schemas
-# MAGIC 
+# MAGIC
 # MAGIC ```sql
 # MAGIC USE CATALOG water_digital_twin;
-# MAGIC 
+# MAGIC
 # MAGIC CREATE SCHEMA IF NOT EXISTS bronze
-# MAGIC COMMENT 'Raw ingested telemetry and reference data';
-# MAGIC 
+# MAGIC COMMENT 'Raw ingestion layer — data as-is from source systems';
+# MAGIC
 # MAGIC CREATE SCHEMA IF NOT EXISTS silver
-# MAGIC COMMENT 'Cleansed dimensions and fact tables';
-# MAGIC 
+# MAGIC COMMENT 'Curated layer — cleansed dimensions and facts';
+# MAGIC
 # MAGIC CREATE SCHEMA IF NOT EXISTS gold
-# MAGIC COMMENT 'Aggregated views, metric views, anomaly scores, and incident data';
+# MAGIC COMMENT 'Consumption layer — aggregated views, incidents, and operational tables';
 # MAGIC ```
-# MAGIC 
+# MAGIC
+# MAGIC ### C3. Create Landing Zone Volume
+# MAGIC
+# MAGIC The data generation notebooks write JSON files to this Volume. The SDP pipeline ingests them via Auto Loader.
+# MAGIC
+# MAGIC ```sql
+# MAGIC CREATE VOLUME IF NOT EXISTS water_digital_twin.bronze.landing_zone
+# MAGIC COMMENT 'File landing zone for data generation notebooks — JSON files ingested by SDP Auto Loader';
+# MAGIC ```
+# MAGIC
 # MAGIC **Verification:**
-# MAGIC 
+# MAGIC
 # MAGIC ```sql
 # MAGIC SHOW SCHEMAS IN water_digital_twin;
+# MAGIC SHOW VOLUMES IN water_digital_twin.bronze;
 # MAGIC ```
-# MAGIC 
-# MAGIC Expected: `bronze`, `silver`, `gold` (plus `default` and `information_schema`).
+# MAGIC
+# MAGIC Expected: `bronze`, `silver`, `gold` schemas; `landing_zone` volume.
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## Next Step
 # MAGIC 
-# MAGIC Proceed to [02 -- Orchestration Guide](02_orchestration_guide.md) to create the pipeline workflow.
+# MAGIC Proceed to **02 -- Orchestration Guide** to create the pipeline workflow.
+# MAGIC
+# MAGIC > **Note:** All of the above is handled automatically by notebook `01_schema_ddl` — this guide is for manual setup or verification only.

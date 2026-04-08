@@ -11,19 +11,24 @@
 # MAGIC **Outputs:**
 # MAGIC | Layer | Table | Approx Rows |
 # MAGIC |-------|-------|-------------|
-# MAGIC | Bronze | `bronze.raw_telemetry` | ~600K |
-# MAGIC | Silver | `silver.fact_telemetry` | ~600K |
-# MAGIC | Bronze | `bronze.raw_complaints` | 30+ |
-# MAGIC | Silver | `silver.customer_complaints` | 30+ |
+# MAGIC | Target | Path | Approx Rows |
+# MAGIC |--------|------|-------------|
+# MAGIC | Volume | `landing_zone/raw_telemetry/` | ~600K |
+# MAGIC | Volume | `landing_zone/raw_complaints/` | 30+ |
+# MAGIC
+# MAGIC Bronze/Silver/Gold tables are created by the SDP pipeline (`06_sdp_pipeline`).
 
 # COMMAND ----------
 
 # DBTITLE 1,Configuration & Load Dependencies
 import math
 import random
+import pandas as pd
 from datetime import datetime, timedelta
+from pyspark.sql import functions as F
 
 CATALOG = "water_digital_twin"
+VOLUME = f"/Volumes/{CATALOG}/bronze/landing_zone"
 SEED = 42
 
 # Time window: 7 days of 15-min intervals
@@ -39,13 +44,13 @@ INCIDENT_TIME = datetime(2026, 4, 7, 2, 3, 0)
 PRESSURE_RED = 15.0
 PRESSURE_AMBER = 25.0
 
-# Load sensor data
-df_sensors = spark.table(f"{CATALOG}.silver.dim_sensor").cache()
+# Load sensor data from Volume (written by NB03)
+df_sensors = spark.read.json(f"{VOLUME}/raw_sensors")
 sensor_rows = df_sensors.collect()
 sensor_lookup = {row["sensor_id"]: row for row in sensor_rows}
 
-# Load properties for complaints
-df_props = spark.table(f"{CATALOG}.silver.dim_properties").cache()
+# Load properties for complaints from Volume (written by NB03)
+df_props = spark.read.json(f"{VOLUME}/raw_customer_contacts")
 
 print(f"Loaded {len(sensor_rows)} sensors")
 print(f"Pressure sensors: {sum(1 for s in sensor_rows if s['sensor_type'] == 'pressure')}")
@@ -230,21 +235,6 @@ def get_reading(sensor, ts):
 
 # DBTITLE 1,Build & Write Telemetry in Batches
 
-from pyspark.sql.types import (
-    StructType, StructField, StringType, DoubleType, FloatType, BooleanType
-)
-
-telemetry_schema = StructType([
-    StructField("sensor_id", StringType(), False),
-    StructField("sensor_type", StringType(), False),
-    StructField("dma_code", StringType(), False),
-    StructField("timestamp", StringType(), False),
-    StructField("value", FloatType(), False),
-    StructField("unit", StringType(), False),
-    StructField("quality_flag", StringType(), False),
-    StructField("anomaly_flag", BooleanType(), False),
-])
-
 # Generate telemetry for all sensors
 # To manage memory, process in sensor batches and append
 first_batch = True
@@ -256,41 +246,13 @@ for s_start in range(0, len(sensor_rows), sensor_batch_size):
 
     for sensor in s_batch:
         for ts in timestamps:
-            reading = get_reading(sensor, ts)
-            batch_data.append((
-                reading["sensor_id"], reading["sensor_type"], reading["dma_code"],
-                reading["timestamp"], float(reading["value"]), reading["unit"],
-                reading["quality_flag"], reading["anomaly_flag"],
-            ))
+            batch_data.append(get_reading(sensor, ts))
 
-    df_batch = spark.createDataFrame(batch_data, schema=telemetry_schema)
+    df_batch = spark.createDataFrame(pd.DataFrame(batch_data))
 
     write_mode = "overwrite" if first_batch else "append"
-    (
-        df_batch.write
-        .format("delta")
-        .mode(write_mode)
-        .option("overwriteSchema", "true" if first_batch else "false")
-        .saveAsTable(f"{CATALOG}.bronze.raw_telemetry")
-    )
-
-    if first_batch:
-        # Also start the silver table
-        (
-            df_batch.write
-            .format("delta")
-            .mode("overwrite")
-            .option("overwriteSchema", "true")
-            .saveAsTable(f"{CATALOG}.silver.fact_telemetry")
-        )
-        first_batch = False
-    else:
-        (
-            df_batch.write
-            .format("delta")
-            .mode("append")
-            .saveAsTable(f"{CATALOG}.silver.fact_telemetry")
-        )
+    df_batch.write.format("json").mode(write_mode).save(f"{VOLUME}/raw_telemetry")
+    first_batch = False
 
     total_rows += len(batch_data)
     print(f"  Wrote batch {s_start // sensor_batch_size + 1}: {len(batch_data)} rows (cumulative: {total_rows})")
@@ -301,29 +263,8 @@ print(f"\nTotal telemetry rows written: {total_rows}")
 
 # DBTITLE 1,Validate Telemetry — DEMO_SENSOR_01
 
-display(spark.sql(f"""
-SELECT sensor_id, timestamp, value, unit, anomaly_flag
-FROM {CATALOG}.silver.fact_telemetry
-WHERE sensor_id = 'DEMO_SENSOR_01'
-  AND timestamp >= '2026-04-07 01:00:00'
-  AND timestamp <= '2026-04-07 06:00:00'
-ORDER BY timestamp
-"""))
-
-# COMMAND ----------
-
-# DBTITLE 1,Validate — Sensors below threshold after incident
-
-display(spark.sql(f"""
-SELECT sensor_id, dma_code, MIN(value) as min_pressure, MAX(value) as max_pressure, COUNT(*) as readings
-FROM {CATALOG}.silver.fact_telemetry
-WHERE dma_code = 'DEMO_DMA_01'
-  AND sensor_type = 'pressure'
-  AND timestamp >= '2026-04-07 02:03:00'
-  AND timestamp <= '2026-04-07 06:00:00'
-GROUP BY sensor_id, dma_code
-ORDER BY min_pressure
-"""))
+df_tel = spark.read.json(f"{VOLUME}/raw_telemetry")
+display(df_tel.filter("sensor_id = 'DEMO_SENSOR_01' AND timestamp >= '2026-04-07 01:00:00'").select("sensor_id", "timestamp", "value", "unit", "anomaly_flag").orderBy("timestamp"))
 
 # COMMAND ----------
 
@@ -403,84 +344,26 @@ print(f"  Max time: {max(c['complaint_timestamp'] for c in complaint_records)}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Write bronze.raw_complaints & silver.customer_complaints
+# DBTITLE 1,Write bronze.raw_complaints
 
-complaint_schema = StructType([
-    StructField("complaint_id", StringType(), False),
-    StructField("property_id", StringType(), False),
-    StructField("dma_code", StringType(), False),
-    StructField("complaint_type", StringType(), False),
-    StructField("description", StringType(), False),
-    StructField("complaint_timestamp", StringType(), False),
-    StructField("contact_channel", StringType(), False),
-    StructField("customer_height_m", FloatType(), False),
-    StructField("property_type", StringType(), False),
-    StructField("status", StringType(), False),
-    StructField("resolution_timestamp", StringType(), True),
-    StructField("resolution_notes", StringType(), True),
-])
-
-complaint_rows = [
-    (
-        c["complaint_id"], c["property_id"], c["dma_code"],
-        c["complaint_type"], c["description"], c["complaint_timestamp"],
-        c["contact_channel"], c["customer_height_m"], c["property_type"],
-        c["status"], c["resolution_timestamp"], c["resolution_notes"],
-    )
-    for c in complaint_records
-]
-
-df_complaints = spark.createDataFrame(complaint_rows, schema=complaint_schema)
-
-# Bronze
-(
-    df_complaints.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"{CATALOG}.bronze.raw_complaints")
-)
-print(f"Wrote {df_complaints.count()} rows to {CATALOG}.bronze.raw_complaints")
-
-# Silver
-(
-    df_complaints.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"{CATALOG}.silver.customer_complaints")
-)
-print(f"Wrote {df_complaints.count()} rows to {CATALOG}.silver.customer_complaints")
+path = f"{VOLUME}/raw_complaints"
+spark.createDataFrame(pd.DataFrame(complaint_records)).write.format("json").mode("overwrite").save(path)
+print(f"Wrote {len(complaint_records)} complaint records to {path}")
 
 # COMMAND ----------
 
 # DBTITLE 1,Validation Summary
 print("=== Fact Data Generation Complete ===")
 
-telemetry_count = spark.table(f"{CATALOG}.silver.fact_telemetry").count()
-complaint_count = spark.table(f"{CATALOG}.silver.customer_complaints").count()
+telemetry_count = spark.read.json(f"{VOLUME}/raw_telemetry").count()
+complaint_count = spark.read.json(f"{VOLUME}/raw_complaints").count()
 print(f"  Total telemetry rows: {telemetry_count}")
 print(f"  Total complaints: {complaint_count}")
 
 # Verify pressure pattern for DEMO_SENSOR_01
-display(spark.sql(f"""
-SELECT
-  CASE WHEN timestamp < '2026-04-07 02:03:00' THEN 'before_incident' ELSE 'after_incident' END as period,
-  AVG(value) as avg_pressure,
-  MIN(value) as min_pressure,
-  MAX(value) as max_pressure,
-  COUNT(*) as readings
-FROM {CATALOG}.silver.fact_telemetry
-WHERE sensor_id = 'DEMO_SENSOR_01'
-GROUP BY CASE WHEN timestamp < '2026-04-07 02:03:00' THEN 'before_incident' ELSE 'after_incident' END
-"""))
-
-# Count DEMO_DMA_01 pressure sensors below threshold after incident
-display(spark.sql(f"""
-SELECT COUNT(DISTINCT sensor_id) as sensors_below_red
-FROM {CATALOG}.silver.fact_telemetry
-WHERE dma_code = 'DEMO_DMA_01'
-  AND sensor_type = 'pressure'
-  AND timestamp >= '2026-04-07 02:03:00'
-  AND value < {PRESSURE_RED}
-"""))
+df_tel = spark.read.json(f"{VOLUME}/raw_telemetry")
+display(
+    df_tel.filter("sensor_id = 'DEMO_SENSOR_01'")
+    .withColumn("period", F.when(F.col("timestamp") < "2026-04-07 02:03:00", "before_incident").otherwise("after_incident"))
+    .groupBy("period").agg(F.avg("value").alias("avg_pressure"), F.min("value").alias("min_pressure"), F.count("*").alias("readings"))
+)

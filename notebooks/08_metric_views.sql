@@ -1,17 +1,111 @@
 -- Databricks notebook source
 
 -- MAGIC %md
--- MAGIC # 08 — Metric Views (mv_ prefix)
+-- MAGIC # 08 — Gold Views & Metric Views
 -- MAGIC
--- MAGIC Creates 5 metric views in `water_digital_twin.gold` for consumption by Genie Spaces and dashboards.
+-- MAGIC This notebook creates:
+-- MAGIC 1. **Gold views** (`vw_*`) — SQL aggregation views over Silver tables
+-- MAGIC 2. **Metric views** (`mv_*`) — views with semantic metadata for Genie Spaces and dashboards
 -- MAGIC
--- MAGIC **Metric Views** are a Databricks preview feature that attach semantic metadata (dimensions, measures)
--- MAGIC directly to SQL views, enabling AI-powered natural language querying via Genie.
+-- MAGIC **Prerequisites:** Silver tables must be populated (by the SDP pipeline or data generation notebooks).
 -- MAGIC
 -- MAGIC **Catalog:** `water_digital_twin`
+
+-- COMMAND ----------
+
+-- MAGIC %md
+-- MAGIC ## Gold Views (vw_*)
 -- MAGIC
--- MAGIC ## Approach
--- MAGIC This notebook uses `CREATE OR REPLACE METRIC VIEW` syntax (Databricks preview).
+-- MAGIC These views aggregate Silver-layer data for downstream consumption by Gold computations,
+-- MAGIC dashboards, and the Databricks App.
+
+-- COMMAND ----------
+
+CREATE OR REPLACE VIEW water_digital_twin.gold.vw_dma_pressure
+COMMENT 'Aggregated pressure metrics per DMA per timestamp for dashboard consumption'
+AS
+SELECT
+  s.dma_code,
+  t.timestamp,
+  AVG(t.value)               AS avg_pressure,
+  MAX(t.value)               AS max_pressure,
+  MIN(t.value)               AS min_pressure,
+  AVG(t.total_head_pressure) AS avg_total_head_pressure,
+  COUNT(*)                   AS reading_count
+FROM water_digital_twin.silver.fact_telemetry t
+JOIN water_digital_twin.silver.dim_sensor s
+  ON t.sensor_id = s.sensor_id
+WHERE s.sensor_type = 'pressure'
+GROUP BY s.dma_code, t.timestamp;
+
+-- COMMAND ----------
+
+CREATE OR REPLACE VIEW water_digital_twin.gold.vw_pma_pressure
+COMMENT 'Aggregated pressure metrics per PMA per timestamp for dashboard consumption'
+AS
+SELECT
+  s.pma_code,
+  t.timestamp,
+  AVG(t.value)               AS avg_pressure,
+  MAX(t.value)               AS max_pressure,
+  MIN(t.value)               AS min_pressure,
+  AVG(t.total_head_pressure) AS avg_total_head_pressure,
+  COUNT(*)                   AS reading_count
+FROM water_digital_twin.silver.fact_telemetry t
+JOIN water_digital_twin.silver.dim_sensor s
+  ON t.sensor_id = s.sensor_id
+WHERE s.sensor_type = 'pressure'
+  AND s.pma_code IS NOT NULL
+GROUP BY s.pma_code, t.timestamp;
+
+-- COMMAND ----------
+
+CREATE OR REPLACE VIEW water_digital_twin.gold.vw_property_pressure
+COMMENT 'Per-property effective pressure accounting for customer elevation'
+AS
+SELECT
+  p.uprn,
+  p.dma_code,
+  p.property_type,
+  p.customer_height,
+  t.timestamp,
+  t.total_head_pressure,
+  t.total_head_pressure - p.customer_height AS effective_pressure
+FROM water_digital_twin.silver.dim_properties p
+JOIN water_digital_twin.silver.dim_sensor s
+  ON p.dma_code = s.dma_code
+JOIN water_digital_twin.silver.fact_telemetry t
+  ON s.sensor_id = t.sensor_id
+WHERE s.sensor_type = 'pressure';
+
+-- COMMAND ----------
+
+CREATE OR REPLACE VIEW water_digital_twin.gold.vw_dma_pressure_sensor
+COMMENT 'Per-sensor pressure readings with DMA context for map visualisation'
+AS
+SELECT
+  s.sensor_id,
+  s.dma_code,
+  s.name            AS sensor_name,
+  s.latitude,
+  s.longitude,
+  t.timestamp,
+  t.value           AS pressure,
+  t.total_head_pressure
+FROM water_digital_twin.silver.fact_telemetry t
+JOIN water_digital_twin.silver.dim_sensor s
+  ON t.sensor_id = s.sensor_id
+WHERE s.sensor_type = 'pressure';
+
+-- COMMAND ----------
+
+-- MAGIC %md
+-- MAGIC ## Metric Views (mv_*)
+-- MAGIC
+-- MAGIC Metric views attach semantic metadata (dimensions, measures) to SQL views,
+-- MAGIC enabling AI-powered natural language querying via Genie.
+-- MAGIC
+-- MAGIC Uses `CREATE OR REPLACE METRIC VIEW` syntax (Databricks preview).
 -- MAGIC Each metric view includes a fallback `CREATE OR REPLACE VIEW` that can be used if the
 -- MAGIC `METRIC VIEW` syntax is not yet available on the target workspace.
 
