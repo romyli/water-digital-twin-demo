@@ -9,48 +9,37 @@
 
 import { createApp, server, lakebase, genie } from "@databricks/appkit";
 
-const appkit = await createApp({
-  plugins: [
-    server({ autoStart: false }),
-    lakebase(),
-    genie({
-      spaces: {
-        operator: process.env.DATABRICKS_GENIE_SPACE_ID!,
-      },
-    }),
-  ],
-});
+async function setupRoutes(appkit: any) {
+  // ---------------------------------------------------------------------------
+  // Helper: run a query and return rows
+  // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Helper: run a query and return rows
-// ---------------------------------------------------------------------------
+  async function query(sql: string, params?: any[]): Promise<any[]> {
+    const result = await appkit.lakebase.query(sql, params);
+    return result.rows ?? result;
+  }
 
-async function query(sql: string, params?: any[]): Promise<any[]> {
-  const result = await appkit.lakebase.query(sql, params);
-  return result.rows ?? result;
-}
+  async function queryOne(sql: string, params?: any[]): Promise<any | null> {
+    const rows = await query(sql, params);
+    return rows[0] ?? null;
+  }
 
-async function queryOne(sql: string, params?: any[]): Promise<any | null> {
-  const rows = await query(sql, params);
-  return rows[0] ?? null;
-}
+  // Communications and comms_requests are split across two tables each:
+  // - Delta-synced seed data: communications_log / comms_requests
+  // - App write-back data:    app_communications_log / app_comms_requests
+  // Read queries UNION both; writes go to the app_* tables only.
 
-// Communications and comms_requests are split across two tables each:
-// - Delta-synced seed data: communications_log / comms_requests
-// - App write-back data:    app_communications_log / app_comms_requests
-// Read queries UNION both; writes go to the app_* tables only.
+  const COMMS_UNION = `(
+    SELECT incident_id, channel, recipient, message, sent_by, sent_at FROM communications_log
+    UNION ALL
+    SELECT incident_id, channel, recipient, message, sent_by, sent_at FROM app_communications_log
+  ) AS all_comms`;
 
-const COMMS_UNION = `(
-  SELECT incident_id, channel, recipient, message, sent_by, sent_at FROM communications_log
-  UNION ALL
-  SELECT incident_id, channel, recipient, message, sent_by, sent_at FROM app_communications_log
-) AS all_comms`;
+  // ---------------------------------------------------------------------------
+  // Custom Routes
+  // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Custom Routes
-// ---------------------------------------------------------------------------
-
-appkit.server.extend((app) => {
+  appkit.server.extend((app: any) => {
   // ---- Health -----------------------------------------------------------
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", service: "water-digital-twin", company: "Water Utilities" });
@@ -489,11 +478,23 @@ appkit.server.extend((app) => {
       res.status(500).json({ error: e.message });
     }
   });
-});
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
 
-await appkit.server.start();
-console.log("Water Digital Twin API started");
+createApp({
+  plugins: [
+    server({ autoStart: false }),
+    lakebase(),
+    genie(),
+  ],
+})
+  .then(async (appkit) => {
+    await setupRoutes(appkit);
+    await appkit.server.start();
+    console.log("Water Digital Twin API started");
+  })
+  .catch(console.error);

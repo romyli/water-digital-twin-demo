@@ -1,8 +1,6 @@
-command:
-  - node
-  - build/index.mjs
+command: ['npm', 'run', 'start']
 env:
-  - name: LAKEBASE_ENDPOINT
-    valueFrom: lakebase
   - name: DATABRICKS_GENIE_SPACE_ID
-    value: "REPLACE_WITH_OPERATOR_GENIE_SPACE_ID"
+    valueFrom: genie-space
+  - name: LAKEBASE_ENDPOINT
+    valueFrom: postgres
