@@ -43,7 +43,7 @@ Classify each task by build method:
 | Metric Views | 🔨 CODE | SQL DDL with YAML, fully automatable |
 | Databricks App (React + FastAPI) | 🔨 CODE | Code + `databricks apps deploy`, fully automatable |
 | Lakebase table DDL | 🔨 CODE | SQL DDL via Lakebase endpoint, fully automatable |
-| Genie Spaces (both) | 📋 MANUAL GUIDE | API exists but `serialized_space` JSON is fragile for authoring from scratch; sample questions and system prompt need iterative testing in the UI to validate Genie responses |
+| Genie Spaces (both) | 🔨 CODE + 📋 MANUAL GUIDE | Verified SQL queries are developed and tested as code (Phase 1); space creation and configuration done via UI guide (Phase 2) because `serialized_space` JSON is fragile and sample questions need iterative UI validation |
 | Lakeview Dashboard | 📋 MANUAL GUIDE | API exists but `serialized_dashboard` JSON is too verbose to author from scratch; tile layout and visualisation types need visual tweaking |
 | Preview feature enablement | 📋 MANUAL GUIDE | Admin UI toggles and support tickets — cannot be scripted |
 | Lakebase instance creation | 📋 MANUAL GUIDE | One-time workspace setup — easier via UI than CLI for initial provisioning |
@@ -99,7 +99,7 @@ Classify each task by build method:
 ### Bob — Senior Data Engineer
 - **Task 6 (Data Generation) — 🔨 CODE:** Generate synthetic sample data at the volumes specified in the approved plan's Section 5. Must be idempotent and re-runnable. All geospatial data must use coordinates within the **Greater London bounding box** (51.28-51.70N, -0.51-0.33E). DMA polygons should tessellate across Greater London. Elevation values should approximate London's real topography (low near the Thames, higher on hills). **Must generate all entity types** listed in the approved plan's Section 5 Demo Scenario Contract, including: flow sensors/telemetry, reservoirs, trunk main with LINESTRING geometry, isolation valves, parent incident records (dim_incidents — 1 active + 5-10 historical), incident event log, communications log, shift handover records, response playbook data, comms_requests (1 sample record for the demo), and dialysis_home property types.
 
-- **Task 7 (SDP Pipeline) — 🔨 CODE:** Build the Spark Declarative Pipeline for Bronze -> Silver -> Gold. Include: streaming ingestion for sensor telemetry (pressure AND flow), batch processing for reference/geospatial data, geospatial transformations (ST_ functions, H3 indexing), and **data quality expectations** (EXPECT sensor readings in valid range 0-120m pressure / 0-500 l/s flow; EXPECT OR DROP null geometries; EXPECT referential integrity on dma_code foreign keys).
+- **Task 7 (SDP Pipeline) — 🔨 CODE:** Build the Spark Declarative Pipeline for Bronze -> Silver -> Gold. Include: streaming ingestion for sensor telemetry (pressure AND flow), batch processing for reference/geospatial data, batch ingestion for customer complaints (`bronze.raw_complaints` → `silver.customer_complaints`), geospatial transformations (ST_ functions, H3 indexing), and **data quality expectations** (EXPECT sensor readings in valid range 0-120m pressure / 0-500 l/s flow; EXPECT OR DROP null geometries; EXPECT referential integrity on dma_code foreign keys; EXPECT complaint_type IN ('no_water', 'low_pressure', 'discoloured_water', 'other')).
 
 - **Task 7b (Anomaly Scoring & Status Computation) — 🔨 CODE:** Compute anomaly scores in the Gold layer. For each sensor reading, compare against the sensor's rolling 7-day baseline **at the same time of day** (pressure has strong diurnal patterns — low morning demand, recovery mid-day, evening drop). Score = standard deviations from baseline. Store in `gold.anomaly_scores`. Also compute and store:
   - `gold.dma_rag_history` (RAG status per DMA per 15-minute interval) to enable the timeline strip in the app.
@@ -179,9 +179,16 @@ Classify each task by build method:
   - **Empty / no-incident state:** When no active incident exists, the app should show a "Network Normal" landing page with: overall DMA health summary (all-green map), last resolved incident summary, and a "No active incidents" banner. All panels should show meaningful empty states rather than blank screens or errors. The app must not crash if seed data is missing (cold-start resilience).
   - All reads from Lakebase for sub-second response (<3s map load, <1s panel updates).
 
-- **Task 9a (Operator Genie Space — "Network Operations") — 📋 MANUAL GUIDE:** Produce a numbered, step-by-step guide for the SA to create and configure this Genie Space in the Databricks UI. The guide must include:
+- **Task 9a (Operator Genie Space — "Network Operations") — 🔨 CODE + 📋 MANUAL GUIDE:** This is a two-phase task. **Phase 1 (🔨 CODE):** Write and execute all verified SQL queries (Q1-Q10) against the live demo data to confirm they return correct results. Fix any query that returns incorrect or empty results. Save the tested, working queries to a SQL file (`genie/operator_verified_queries.sql`). **Phase 2 (📋 MANUAL GUIDE):** Using the tested queries from Phase 1, produce a numbered step-by-step guide for the SA to create and configure this Genie Space in the Databricks UI. The guide must include:
 
-  **Step-by-step creation:**
+  **Phase 1 — Query development and testing (🔨 CODE):**
+  Write and run each verified query against Bob's populated tables. For each query:
+  - Execute against the SQL Warehouse
+  - Confirm the result matches the expected demo scenario (e.g., Q1 should show DEMO_DMA_01 with the biggest pressure drop; Q2 should return at least 2 schools and 1 hospital)
+  - If a query returns wrong results, fix it and re-test
+  - Save all 10 tested queries to `genie/operator_verified_queries.sql` with comments showing expected results
+
+  **Phase 2 — SA configuration guide (📋 MANUAL GUIDE):**
   1. Navigate to: AI/BI > Genie Spaces > "Create Genie Space"
   2. Space name: `Network Operations`
   3. Description: `Operational Genie Space for water network control room operators. Ask questions about pressure, flow, DMAs, sensors, and incidents.`
@@ -191,9 +198,7 @@ Classify each task by build method:
      - Gold tables: `water_digital_twin.silver.fact_telemetry`, `water_digital_twin.gold.dma_status`, `water_digital_twin.gold.dma_rag_history`, `water_digital_twin.gold.anomaly_scores`, `water_digital_twin.gold.dma_summary`
   5. **Set instructions** — copy-paste the exact system prompt text from the approved plan's Section 4, Scene 7a into the "General instructions" field
   6. **Add sample questions** — for each of the 10 operator questions from Section 4 Scene 7a, click "Add sample question" and enter the question text
-  7. **Add verified queries** — for questions 1-8, click the question, then "Add verified query", and paste the SQL. Provide the **exact SQL for each verified query**:
-     - Q1 verified SQL: `SELECT d.dma_code, d.dma_name, s.avg_pressure, s.avg_pressure - LAG(s.avg_pressure, 24) OVER (PARTITION BY s.dma_code ORDER BY s.timestamp) as pressure_drop FROM gold.dma_rag_history s JOIN silver.dim_dma d ON s.dma_code = d.dma_area_code WHERE s.timestamp >= CURRENT_TIMESTAMP() - INTERVAL 6 HOURS ORDER BY pressure_drop ASC LIMIT 10`
-     - [Provide exact SQL for Q2-Q8 — each query must be tested and verified before adding]
+  7. **Add verified queries** — for questions 1-10, click the question, then "Add verified query", and paste the corresponding tested SQL from `genie/operator_verified_queries.sql`
   8. **Test each sample question** — click the question in the UI, verify Genie returns the correct answer, adjust the system prompt or verified query if needed
   9. **Share** — set permissions so demo viewers can access the space
   
@@ -201,13 +206,20 @@ Classify each task by build method:
   - [ ] All 13 trusted assets are listed and accessible
   - [ ] System prompt is pasted correctly (copy from approved plan Section 4, Scene 7a)
   - [ ] All 10 sample questions are added
-  - [ ] Verified queries for Q1-Q8 return correct results
+  - [ ] All 10 verified queries were pre-tested by Charlie and return correct results (see `genie/operator_verified_queries.sql`)
   - [ ] Spatial queries (Q6 using ST_Distance, Q8 using ST_Contains) execute successfully
   - [ ] Genie responds accurately to at least 8 of 10 sample questions without modification
 
-- **Task 9b (Executive Genie Space — "Water Operations Intelligence") — 📋 MANUAL GUIDE:** Produce a numbered, step-by-step guide for the SA to create and configure this Genie Space in the Databricks UI. This is a **separate** Genie Space from the operator one — different trusted assets, different system prompt, different sample questions. The guide must include:
+- **Task 9b (Executive Genie Space — "Water Operations Intelligence") — 🔨 CODE + 📋 MANUAL GUIDE:** Same two-phase approach as Task 9a. **Phase 1 (🔨 CODE):** Write and execute all verified SQL queries (Q1-Q8) against the live demo data. Fix any query that returns incorrect or empty results. Save the tested, working queries to `genie/executive_verified_queries.sql`. **Phase 2 (📋 MANUAL GUIDE):** Using the tested queries, produce a step-by-step guide. This is a **separate** Genie Space from the operator one — different trusted assets, different system prompt, different sample questions. The guide must include:
 
-  **Step-by-step creation:**
+  **Phase 1 — Query development and testing (🔨 CODE):**
+  Write and run each verified query against Bob's populated tables. For each query:
+  - Execute against the SQL Warehouse
+  - Confirm the result matches the expected demo scenario (e.g., Q1 should return £180K penalty exposure for the active incident; Q3 should show DEMO_DMA_01 in the top 10)
+  - If a query returns wrong results, fix it and re-test
+  - Save all 8 tested queries to `genie/executive_verified_queries.sql` with comments showing expected results
+
+  **Phase 2 — SA configuration guide (📋 MANUAL GUIDE):**
   1. Navigate to: AI/BI > Genie Spaces > "Create Genie Space"
   2. Space name: `Water Operations Intelligence`
   3. Description: `Executive Genie Space for water utility leadership, compliance managers, and operations directors. Ask questions about regulatory compliance, financial exposure, incident trends, and AMP8 investment planning.`
@@ -216,9 +228,7 @@ Classify each task by build method:
      - Gold tables: `water_digital_twin.gold.dim_incidents`, `water_digital_twin.gold.incident_events`, `water_digital_twin.gold.dma_status`, `water_digital_twin.gold.dma_summary`, `water_digital_twin.silver.dim_properties`
   5. **Set instructions** — copy-paste the exact system prompt text from the approved plan's Section 4, Scene 7b into the "General instructions" field
   6. **Add sample questions** — for each of the 8 executive questions from Section 4 Scene 7b, click "Add sample question" and enter the question text
-  7. **Add verified queries** — for questions 1-6, provide the **exact SQL for each verified query**:
-     - Q1 verified SQL: `SELECT SUM(estimated_penalty) as total_exposure FROM gold.mv_regulatory_compliance WHERE incident_status = 'active'`
-     - [Provide exact SQL for Q2-Q6 — each must be tested and verified]
+  7. **Add verified queries** — for questions 1-8, click the question, then "Add verified query", and paste the corresponding tested SQL from `genie/executive_verified_queries.sql`
   8. **Test each sample question** — click the question in the UI, verify Genie returns the correct answer
   9. **Share** — set permissions so demo viewers can access the space
   
@@ -226,7 +236,7 @@ Classify each task by build method:
   - [ ] All 9 trusted assets are listed and accessible
   - [ ] System prompt is pasted correctly (copy from approved plan Section 4, Scene 7b)
   - [ ] All 8 sample questions are added
-  - [ ] Verified queries for Q1-Q6 return correct results
+  - [ ] All 8 verified queries were pre-tested by Charlie and return correct results (see `genie/executive_verified_queries.sql`)
   - [ ] Genie responds accurately to at least 6 of 8 sample questions without modification
   - [ ] Executive questions about penalty exposure and AMP8 return meaningful numbers
 
