@@ -1,3 +1,8 @@
+.DS_Store
+
+# Raw customer notes — NEVER commit
+notes/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
