@@ -46,6 +46,9 @@ export const fetchSensorAnomalies = (id: string) => request(`/api/sensor/${id}/a
 // --- Map ---
 export const fetchMapGeoJSON = () => request("/api/map/geojson");
 export const fetchMapAssets = (dmaCode: string) => request(`/api/map/assets/${dmaCode}`);
+export const fetchMapSensors = () => request("/api/map/sensors");
+export const fetchMapComplaints = (dmaCode: string) => request(`/api/map/complaints/${dmaCode}`);
+export const fetchMapSensitive = (dmaCode: string) => request(`/api/map/sensitive/${dmaCode}`);
 
 // --- Playbooks ---
 export const fetchPlaybook = (type: string) => request(`/api/playbooks/${type}`);

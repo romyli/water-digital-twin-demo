@@ -175,10 +175,29 @@ async function setupRoutes(appkit: any) {
 
   app.get("/api/dma/:code/sensors", async (req: any, res: any) => {
     try {
+      // Join dim_sensor with the latest telemetry reading per sensor
       const rows = await query(
-        "SELECT * FROM dim_sensor WHERE dma_code = $1 ORDER BY sensor_id", [req.params.code]
+        `SELECT s.*,
+                t.latest_value,
+                t.sensor_type AS reading_type
+         FROM dim_sensor s
+         LEFT JOIN LATERAL (
+           SELECT value AS latest_value, sensor_type
+           FROM fact_telemetry
+           WHERE sensor_id = s.sensor_id
+           ORDER BY timestamp DESC LIMIT 1
+         ) t ON true
+         WHERE s.dma_code = $1
+         ORDER BY t.latest_value ASC NULLS LAST, s.sensor_id`,
+        [req.params.code]
       );
-      res.json({ sensors: rows });
+      // Map to frontend-expected shape: latest_pressure / latest_flow
+      const sensors = rows.map((r: any) => ({
+        ...r,
+        latest_pressure: r.sensor_type === "pressure" ? r.latest_value : null,
+        latest_flow: r.sensor_type === "flow" ? r.latest_value : null,
+      }));
+      res.json({ sensors });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -226,10 +245,17 @@ async function setupRoutes(appkit: any) {
     try {
       const hours = Math.min(168, Math.max(1, Number(req.query.hours) || 24));
       const since = new Date(Date.now() - hours * 3600_000).toISOString();
-      const rows = await query(
+      let rows = await query(
         "SELECT dma_code, timestamp AS recorded_at, rag_status, avg_pressure, min_pressure FROM dma_rag_history WHERE dma_code = $1 AND timestamp >= $2 ORDER BY timestamp ASC",
         [req.params.code, since]
       );
+      if (rows.length === 0) {
+        // Static demo data — return all history for this DMA
+        rows = await query(
+          "SELECT dma_code, timestamp AS recorded_at, rag_status, avg_pressure, min_pressure FROM dma_rag_history WHERE dma_code = $1 ORDER BY timestamp ASC",
+          [req.params.code]
+        );
+      }
       res.json({ rag_history: rows });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -242,11 +268,20 @@ async function setupRoutes(appkit: any) {
     try {
       const hours = Math.min(168, Math.max(1, Number(req.query.hours) || 24));
       const since = new Date(Date.now() - hours * 3600_000).toISOString();
-      const rows = await query(
+      let rows = await query(
         `SELECT sensor_id, sensor_type, timestamp AS ts, value, unit
          FROM fact_telemetry WHERE sensor_id = $1 AND timestamp >= $2 ORDER BY timestamp ASC`,
         [req.params.id, since]
       );
+      if (rows.length === 0) {
+        // Static demo data fallback — return most recent readings
+        rows = await query(
+          `SELECT sensor_id, sensor_type, timestamp AS ts, value, unit
+           FROM fact_telemetry WHERE sensor_id = $1 ORDER BY timestamp DESC LIMIT 500`,
+          [req.params.id]
+        );
+        rows.reverse();
+      }
       // Pivot: the frontend expects { ts, pressure, flow } per row
       // Group by timestamp, merge pressure + flow values
       const byTs: Record<string, any> = {};
@@ -323,6 +358,85 @@ async function setupRoutes(appkit: any) {
           geometry: geom,
         };
       });
+      res.json({ type: "FeatureCollection", features });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ---- Map overlays: sensors, complaints, sensitive premises --------------
+  app.get("/api/map/sensors", async (_req: any, res: any) => {
+    try {
+      const rows = await query(
+        `SELECT s.sensor_id, s.sensor_type, s.latitude, s.longitude, s.dma_code,
+                d.rag_status, d.avg_pressure
+         FROM dim_sensor s
+         LEFT JOIN dma_status d ON s.dma_code = d.dma_code
+         WHERE s.latitude IS NOT NULL AND s.longitude IS NOT NULL`
+      );
+      const features = rows.map((r: any) => ({
+        type: "Feature",
+        properties: {
+          sensor_id: r.sensor_id,
+          sensor_type: r.sensor_type,
+          dma_code: r.dma_code,
+          rag_status: r.rag_status ?? "GREEN",
+          avg_pressure: r.avg_pressure != null ? Number(r.avg_pressure) : null,
+        },
+        geometry: { type: "Point", coordinates: [Number(r.longitude), Number(r.latitude)] },
+      }));
+      res.json({ type: "FeatureCollection", features });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/map/complaints/:dmaCode", async (req: any, res: any) => {
+    try {
+      const rows = await query(
+        `SELECT c.complaint_type, c.complaint_timestamp, c.property_id,
+                p.latitude, p.longitude
+         FROM customer_complaints c
+         JOIN dim_properties p ON c.property_id = p.property_id
+         WHERE c.dma_code = $1 AND p.latitude IS NOT NULL
+         ORDER BY c.complaint_timestamp DESC LIMIT 100`,
+        [req.params.dmaCode]
+      );
+      const features = rows.map((r: any) => ({
+        type: "Feature",
+        properties: {
+          complaint_type: r.complaint_type,
+          complaint_timestamp: r.complaint_timestamp,
+          property_id: r.property_id,
+        },
+        geometry: { type: "Point", coordinates: [Number(r.longitude), Number(r.latitude)] },
+      }));
+      res.json({ type: "FeatureCollection", features });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/map/sensitive/:dmaCode", async (req: any, res: any) => {
+    try {
+      const rows = await query(
+        `SELECT property_id, property_type, latitude, longitude,
+                sensitive_premise_type, customer_height_m
+         FROM dim_properties
+         WHERE dma_code = $1 AND sensitive_premise_type IS NOT NULL
+           AND latitude IS NOT NULL`,
+        [req.params.dmaCode]
+      );
+      const features = rows.map((r: any) => ({
+        type: "Feature",
+        properties: {
+          property_id: r.property_id,
+          property_type: r.property_type,
+          sensitive_type: r.sensitive_premise_type,
+          height: r.customer_height_m != null ? Number(r.customer_height_m) : null,
+        },
+        geometry: { type: "Point", coordinates: [Number(r.longitude), Number(r.latitude)] },
+      }));
       res.json({ type: "FeatureCollection", features });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
