@@ -49,6 +49,8 @@ export const fetchMapAssets = (dmaCode: string) => request(`/api/map/assets/${dm
 export const fetchMapSensors = () => request("/api/map/sensors");
 export const fetchMapComplaints = (dmaCode: string) => request(`/api/map/complaints/${dmaCode}`);
 export const fetchMapSensitive = (dmaCode: string) => request(`/api/map/sensitive/${dmaCode}`);
+export const fetchMapAllComplaints = () => request("/api/map/complaints");
+export const fetchMapAllSensitive = () => request("/api/map/sensitive");
 
 // --- Playbooks ---
 export const fetchPlaybook = (type: string) => request(`/api/playbooks/${type}`);

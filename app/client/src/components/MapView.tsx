@@ -6,8 +6,8 @@ import {
   fetchMapGeoJSON,
   fetchMapAssets,
   fetchMapSensors,
-  fetchMapComplaints,
-  fetchMapSensitive,
+  fetchMapAllComplaints,
+  fetchMapAllSensitive,
 } from "../api";
 import DMADetail from "./DMADetail";
 import LoadingSpinner from "./common/LoadingSpinner";
@@ -113,15 +113,17 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
   });
 
   const { data: complaintGeoJSON } = useQuery({
-    queryKey: ["mapComplaints", selectedDMA],
-    queryFn: () => fetchMapComplaints(selectedDMA!),
-    enabled: !!selectedDMA && showOverlays,
+    queryKey: ["mapAllComplaints"],
+    queryFn: fetchMapAllComplaints,
+    enabled: showOverlays,
+    staleTime: 60_000,
   });
 
   const { data: sensitiveGeoJSON } = useQuery({
-    queryKey: ["mapSensitive", selectedDMA],
-    queryFn: () => fetchMapSensitive(selectedDMA!),
-    enabled: !!selectedDMA && showOverlays,
+    queryKey: ["mapAllSensitive"],
+    queryFn: fetchMapAllSensitive,
+    enabled: showOverlays,
+    staleTime: 60_000,
   });
 
   // Count DMAs by RAG status
@@ -467,7 +469,7 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
             <span className="text-gray-800 font-medium">GREEN — Normal</span>
           </div>
           {/* Sensitive + complaint legend when panel open */}
-          {selectedDMA && showOverlays && (complaintCount > 0 || sensitiveCount > 0) && (
+          {showOverlays && (complaintCount > 0 || sensitiveCount > 0) && (
             <>
               <div className="border-t border-gray-200 my-1" />
               {complaintCount > 0 && (

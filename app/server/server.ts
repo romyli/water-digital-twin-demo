@@ -428,6 +428,61 @@ async function setupRoutes(appkit: any) {
     }
   });
 
+  // Global complaints overlay (all DMAs, last 7 days)
+  app.get("/api/map/complaints", async (_req: any, res: any) => {
+    try {
+      const since = new Date(Date.now() - 7 * 24 * 3600_000).toISOString();
+      const rows = await query(
+        `SELECT c.complaint_type, c.complaint_timestamp, c.property_id, c.dma_code,
+                p.latitude, p.longitude
+         FROM customer_complaints c
+         JOIN dim_properties p ON c.property_id = p.property_id
+         WHERE p.latitude IS NOT NULL AND c.complaint_timestamp >= $1
+         ORDER BY c.complaint_timestamp DESC LIMIT 500`,
+        [since]
+      );
+      const features = rows.map((r: any) => ({
+        type: "Feature",
+        properties: {
+          complaint_type: r.complaint_type,
+          complaint_timestamp: r.complaint_timestamp,
+          property_id: r.property_id,
+          dma_code: r.dma_code,
+        },
+        geometry: { type: "Point", coordinates: [Number(r.longitude), Number(r.latitude)] },
+      }));
+      res.json({ type: "FeatureCollection", features });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Global sensitive premises overlay (all DMAs)
+  app.get("/api/map/sensitive", async (_req: any, res: any) => {
+    try {
+      const rows = await query(
+        `SELECT property_id, property_type, latitude, longitude,
+                sensitive_premise_type, customer_height_m, dma_code
+         FROM dim_properties
+         WHERE sensitive_premise_type IS NOT NULL AND latitude IS NOT NULL`
+      );
+      const features = rows.map((r: any) => ({
+        type: "Feature",
+        properties: {
+          property_id: r.property_id,
+          property_type: r.property_type,
+          sensitive_type: r.sensitive_premise_type,
+          height: r.customer_height_m != null ? Number(r.customer_height_m) : null,
+          dma_code: r.dma_code,
+        },
+        geometry: { type: "Point", coordinates: [Number(r.longitude), Number(r.latitude)] },
+      }));
+      res.json({ type: "FeatureCollection", features });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/map/complaints/:dmaCode", async (req: any, res: any) => {
     try {
       const rows = await query(
