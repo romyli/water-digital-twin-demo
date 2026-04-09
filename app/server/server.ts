@@ -68,6 +68,20 @@ async function setupRoutes(appkit: any) {
     }
   });
 
+  app.get("/api/incidents/events/recent", async (req: any, res: any) => {
+    try {
+      const hours = Math.min(168, Math.max(1, Number(req.query.hours) || 24));
+      const since = new Date(Date.now() - hours * 3600_000).toISOString();
+      const rows = await query(
+        "SELECT * FROM incident_events WHERE event_timestamp >= $1 ORDER BY event_timestamp DESC LIMIT 200",
+        [since]
+      );
+      res.json({ events: rows });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/incidents/:id/events", async (req: any, res: any) => {
     try {
       const rows = await query(
@@ -430,11 +444,19 @@ async function setupRoutes(appkit: any) {
       const penaltyHours = Math.max(0, hoursElapsed - 3);
       const penalty = totalProperties * penaltyHours * 580;
 
+      // Check if proactive comms have been requested for this incident
+      const commsRequests = await query(
+        "SELECT COUNT(*) AS cnt FROM app_comms_requests WHERE incident_id = $1",
+        [incidentId]
+      );
+      const commsRequested = Number(commsRequests[0]?.cnt || 0) > 0;
+
       res.json({
         incident_id: incidentId,
         incident,
         affected_properties: properties,
         total_properties: totalProperties,
+        proactive_comms_requested: commsRequested,
         hours_elapsed: Math.round(hoursElapsed * 100) / 100,
         deadlines: {
           dwi_verbal:  { label: "DWI Verbal Notification", hours: 1,  status: hoursElapsed >= 1  ? "DONE" : "PENDING" },

@@ -1,12 +1,12 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchActiveIncidents, fetchIncidentEvents } from "../api";
+import { fetchActiveIncidents, fetchIncidentEvents, fetchRecentEvents } from "../api";
 import { format } from "date-fns";
 import RAGBadge from "./common/RAGBadge";
 import LoadingSpinner from "./common/LoadingSpinner";
 import EmptyState from "./common/EmptyState";
 
-export default function AlarmLog({ activeIncident }: { activeIncident: any }) {
+export default function AlarmLog(_props: { activeIncident: any }) {
   const [selectedIncidentId, setSelectedIncidentId] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
 
@@ -17,14 +17,22 @@ export default function AlarmLog({ activeIncident }: { activeIncident: any }) {
 
   const incidents = incidentsData?.incidents || [];
 
-  const queryIncidentId =
-    selectedIncidentId === "all" ? activeIncident?.incident_id : selectedIncidentId;
+  const isAllMode = selectedIncidentId === "all";
 
-  const { data: eventsData, isLoading } = useQuery({
-    queryKey: ["incidentEvents", queryIncidentId],
-    queryFn: () => fetchIncidentEvents(queryIncidentId),
-    enabled: !!queryIncidentId,
+  const { data: recentEventsData, isLoading: loadingRecent } = useQuery({
+    queryKey: ["recentEvents"],
+    queryFn: () => fetchRecentEvents(),
+    enabled: isAllMode,
   });
+
+  const { data: incidentEventsData, isLoading: loadingIncident } = useQuery({
+    queryKey: ["incidentEvents", selectedIncidentId],
+    queryFn: () => fetchIncidentEvents(selectedIncidentId),
+    enabled: !isAllMode,
+  });
+
+  const eventsData = isAllMode ? recentEventsData : incidentEventsData;
+  const isLoading = isAllMode ? loadingRecent : loadingIncident;
 
   const allEvents = eventsData?.events || [];
 

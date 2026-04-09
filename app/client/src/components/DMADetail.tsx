@@ -73,14 +73,19 @@ export default function DMADetail({
 
   const pumpAssets = assets.filter((a: any) => a.asset_type === "pump_station");
   const trunkMains = assets.filter((a: any) => a.asset_type === "trunk_main");
-  const rootCauseText =
-    pumpAssets.length > 0 && trunkMains.length > 0
-      ? `Root Cause: Pump station ${pumpAssets[0].asset_id} tripped at ${
-          "02:03"
-        } \u2192 Trunk Main ${trunkMains[0].asset_id} \u2192 ${dmaCode}. Downstream: ${
-          detail?.downstream_dma_count || 3
-        } DMAs, ~${detail?.total_properties || "1,400"} properties`
-      : null;
+  const rootCauseParts: string[] = [];
+  if (pumpAssets.length > 0 && trunkMains.length > 0) {
+    rootCauseParts.push(
+      `Pump station ${pumpAssets[0].asset_id} \u2192 Trunk Main ${trunkMains[0].asset_id} \u2192 ${dmaCode}`
+    );
+    if (detail?.downstream_dma_count != null) {
+      rootCauseParts.push(`Downstream: ${detail.downstream_dma_count} DMAs`);
+    }
+    if (detail?.total_properties != null) {
+      rootCauseParts.push(`~${detail.total_properties} properties`);
+    }
+  }
+  const rootCauseText = rootCauseParts.length > 0 ? `Root Cause: ${rootCauseParts.join(". ")}` : null;
 
   if (loadingDetail) return <LoadingSpinner message="Loading DMA details..." />;
 
@@ -93,7 +98,12 @@ export default function DMADetail({
         >
           &larr; Back to DMA
         </button>
-        <AssetDetail sensorId={selectedSensor} dmaCode={dmaCode} activeIncident={activeIncident} />
+        <AssetDetail
+          sensorId={selectedSensor}
+          dmaCode={dmaCode}
+          activeIncident={activeIncident}
+          firstComplaintTime={complaints.length > 0 ? complaints[complaints.length - 1]?.complaint_timestamp : undefined}
+        />
       </div>
     );
   }

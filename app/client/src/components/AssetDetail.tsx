@@ -27,10 +27,12 @@ export default function AssetDetail({
   sensorId,
   dmaCode,
   activeIncident,
+  firstComplaintTime,
 }: {
   sensorId: string;
   dmaCode: string;
   activeIncident: any;
+  firstComplaintTime?: string;
 }) {
   const queryClient = useQueryClient();
   const [decisions, setDecisions] = useState<Record<string, string>>({});
@@ -73,8 +75,8 @@ export default function AssetDetail({
     }));
   }, [telemetry]);
 
+  // Oldest anomaly in the window (API returns DESC order, so last = earliest)
   const firstAnomaly = anomalies.length > 0 ? anomalies[anomalies.length - 1] : null;
-  const firstComplaintTime = activeIncident?.first_complaint_time;
   const anomalyLeadMin = useMemo(() => {
     if (!firstAnomaly?.scored_at || !firstComplaintTime) return null;
     const diff =

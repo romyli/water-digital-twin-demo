@@ -62,9 +62,10 @@ export default function RegulatoryView({ incident }: { incident: any }) {
   const properties = reg.affected_properties || [];
   const totalProps = reg.total_properties || 0;
   const hoursElapsed = reg.hours_elapsed || 0;
+  const commsRequested = reg.proactive_comms_requested || false;
 
-  const proactiveRate =
-    totalProps > 0 ? Math.min(100, Math.round((totalProps * 0.6) / totalProps * 100)) : 0;
+  // 0% until proactive comms are requested via the button above
+  const proactiveRate = commsRequested ? 100 : 0;
 
   const deadlineStatus = (d: any) => {
     if (d.status === "DONE") return "GREEN";

@@ -71,6 +71,15 @@ Data gen notebooks write JSON files to a **Unity Catalog Volume** (landing zone)
 
 ### Databricks Apps
 - Always use the **AppKit skill** (`/databricks-apps`) before building any Databricks app. It contains up-to-date scaffolding, configuration, and deployment guidelines.
+- **Scaffold first:** Run `databricks apps init` to generate the canonical AppKit project structure before writing custom code. Match its layout exactly (`server/server.ts`, `client/src/`, `databricks.yml`, split tsconfigs). Do not invent your own directory structure.
+- **Verify table schemas before writing SQL.** Never assume column names — read the data generation notebooks or run `SELECT * FROM <table> LIMIT 1` to confirm. Column name mismatches are the #1 cause of 500 errors at runtime.
+- **UNION ALL columns must have matching types.** If one source has `TEXT` and another has `TIMESTAMP`, explicitly cast both sides (e.g., `col::text`) to avoid `UNION types ... cannot be matched` errors.
+- **App write-back tables must be separate from sync-managed tables.** Lakebase sync notebooks typically `DROP TABLE + CREATE TABLE`, which wipes all data. Tables that receive writes from the app must use a distinct name (e.g., `app_*` prefix) and be created with `CREATE TABLE IF NOT EXISTS` so re-syncs don't destroy app data.
+- **Grant the app service principal access to Lakebase tables.** The app runs as an auto-created SP (`service_principal_client_id` from `databricks apps get`). After syncing tables, grant it access: `databricks_create_role(sp_id, 'SERVICE_PRINCIPAL')` + `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public`.
+- **React 19 + TypeScript: do not `import React from "react"`.** The JSX transform handles it automatically. Bare React imports trigger `TS6133: declared but never read`. Use named imports only when needed (e.g., `import { useState } from "react"`).
+- **Tailwind CSS v4 syntax:** Use `@import "tailwindcss"` + `@theme { }` for custom colours — not the v3 `@tailwind base/components/utilities` directives. Add `@source "../../src/**/*.tsx"` if the Vite plugin doesn't auto-detect component files.
+- **Use MapLibre GL (free) instead of Mapbox GL** for map visualizations. MapLibre is an API-compatible open-source fork that requires no access token. Use the CARTO Positron style (`https://basemaps.cartocdn.com/gl/positron-gl-style/style.json`) for a clean base map. Load the CSS via a `<link>` tag in `index.html`, not via JS `import`.
+- **Make optional plugins conditional.** If a plugin (e.g., Genie) requires a resource that may not be configured yet, guard it: `if (process.env.VAR) plugins.push(plugin())`. Otherwise the app crashes on startup with `ConfigurationError: Missing required resources`.
 
 ### Deployment
 - All files must be uploaded to the workspace at the Asset Root after local changes.

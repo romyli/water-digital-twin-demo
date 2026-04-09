@@ -41,8 +41,8 @@
   }
 }
 
-/* Mapbox overrides */
-.mapboxgl-popup-content {
+/* MapLibre overrides */
+.maplibregl-popup-content {
   @apply rounded-lg shadow-lg p-3 text-sm;
 }
 

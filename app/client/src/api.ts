@@ -21,6 +21,7 @@ export const fetchHealth = () => request("/api/health");
 export const fetchActiveIncidents = () => request("/api/incidents/active");
 export const fetchIncident = (id: string) => request(`/api/incidents/${id}`);
 export const fetchIncidentEvents = (id: string) => request(`/api/incidents/${id}/events`);
+export const fetchRecentEvents = (hours = 24) => request(`/api/incidents/events/recent?hours=${hours}`);
 export const fetchHandover = (id: string) => request(`/api/incidents/${id}/handover`);
 
 // --- DMA ---

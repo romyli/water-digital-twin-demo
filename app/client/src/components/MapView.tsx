@@ -26,7 +26,7 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
   const [selectedDMA, setSelectedDMA] = useState<string | null>(null);
   const [filter, setFilter] = useState("ALL");
 
-  const { data: geojson, isLoading } = useQuery({
+  const { data: geojson, isLoading, error: geoError } = useQuery({
     queryKey: ["mapGeoJSON"],
     queryFn: fetchMapGeoJSON,
     staleTime: 60_000,
@@ -184,6 +184,10 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
 
   if (isLoading) return <LoadingSpinner message="Loading network map..." />;
 
+  const geoErrorMsg = geoError
+    ? `Failed to load DMA data: ${(geoError as Error).message}. Check that PostGIS is enabled and the sync notebook has been run.`
+    : null;
+
   const filterButtons = [
     { key: "ALL", label: "All DMAs" },
     { key: "CHANGED", label: "Changed" },
@@ -195,7 +199,12 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
     <div className="relative h-[calc(100vh-3.5rem)] flex">
       <div className="flex-1 relative">
         <div ref={mapContainer} className="absolute inset-0" />
-        <div className="absolute top-3 left-3 z-10 flex gap-1.5">
+        {geoErrorMsg && (
+          <div className="absolute top-3 left-3 right-3 z-20 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-800">
+            {geoErrorMsg}
+          </div>
+        )}
+        <div className={`absolute ${geoErrorMsg ? "top-16" : "top-3"} left-3 z-10 flex gap-1.5`}>
           {filterButtons.map((b) => (
             <button
               key={b.key}
