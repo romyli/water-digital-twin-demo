@@ -198,6 +198,7 @@ function DemoControl() {
     queryKey: ["demoStatus"],
     queryFn: fetchDemoStatus,
     staleTime: 30_000,
+    retry: 1,
   });
 
   const isActive = demoStatus?.scenarioActive ?? false;

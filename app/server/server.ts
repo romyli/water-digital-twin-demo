@@ -145,7 +145,7 @@ async function setupRoutes(appkit: any) {
         query("SELECT * FROM dim_incidents WHERE status = 'active' ORDER BY created_at DESC"),
         queryOne(
           `SELECT COUNT(DISTINCT s.dma_code) AS affected_dma_count,
-                  COALESCE(SUM(sm.total_properties), SUM(sm.property_count), 0) AS total_properties,
+                  COALESCE(SUM(sm.total_properties), 0) AS total_properties,
                   COALESCE(SUM(sm.sensitive_premises_count), 0) AS sensitive_site_count
            FROM dma_status s
            LEFT JOIN vw_dma_summary sm ON s.dma_code = sm.dma_code
@@ -231,7 +231,7 @@ async function setupRoutes(appkit: any) {
         query(`SELECT * FROM ${COMMS_UNION} WHERE incident_id = $1 ORDER BY comms_timestamp DESC`, [id]),
         queryOne(
           `SELECT COUNT(DISTINCT s.dma_code) AS affected_dma_count,
-                  COALESCE(SUM(sm.total_properties), SUM(sm.property_count), 0) AS total_properties,
+                  COALESCE(SUM(sm.total_properties), 0) AS total_properties,
                   COALESCE(SUM(sm.sensitive_premises_count), 0) AS sensitive_site_count
            FROM dma_status s
            LEFT JOIN vw_dma_summary sm ON s.dma_code = sm.dma_code
