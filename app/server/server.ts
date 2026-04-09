@@ -485,13 +485,17 @@ async function setupRoutes(appkit: any) {
 // Start
 // ---------------------------------------------------------------------------
 
-createApp({
-  plugins: [
-    server({ autoStart: false }),
-    lakebase(),
-    genie(),
-  ],
-})
+const plugins: any[] = [
+  server({ autoStart: false }),
+  lakebase(),
+];
+
+// Only enable Genie if a space ID is configured
+if (process.env.DATABRICKS_GENIE_SPACE_ID) {
+  plugins.push(genie());
+}
+
+createApp({ plugins })
   .then(async (appkit) => {
     await setupRoutes(appkit);
     await appkit.server.start();
