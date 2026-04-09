@@ -15,8 +15,13 @@ async function setupRoutes(appkit: any) {
   // ---------------------------------------------------------------------------
 
   async function query(sql: string, params?: any[]): Promise<any[]> {
-    const result = await appkit.lakebase.query(sql, params);
-    return result.rows ?? result;
+    try {
+      const result = await appkit.lakebase.query(sql, params);
+      return result.rows ?? result;
+    } catch (err: any) {
+      console.error("[lakebase query error]", err.message || err, "SQL:", sql.slice(0, 200));
+      throw err;
+    }
   }
 
   async function queryOne(sql: string, params?: any[]): Promise<any | null> {
