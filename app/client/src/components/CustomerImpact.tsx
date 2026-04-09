@@ -2,6 +2,16 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchDMAProperties } from "../api";
 import { humanize } from "../utils/format";
+import {
+  ResponsiveContainer,
+  ScatterChart,
+  Scatter,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ReferenceLine,
+  CartesianGrid,
+} from "recharts";
 import LoadingSpinner from "./common/LoadingSpinner";
 import EmptyState from "./common/EmptyState";
 
@@ -32,6 +42,20 @@ const PRESETS = [
   { label: "Fully restored (100%)", value: 100 },
 ];
 
+function ElevationTooltip({ active, payload }: any) {
+  if (!active || !payload?.[0]) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="bg-gray-900 text-white rounded-lg px-3 py-2 text-xs shadow-xl">
+      <p className="font-semibold">{d.property_id}</p>
+      <p>{humanize(d.property_type)}</p>
+      <p>Elevation: {d.height.toFixed(0)}m</p>
+      <p>Effective pressure: {d.effectivePressure.toFixed(1)}m</p>
+      <p>Impact: {d.impact}</p>
+    </div>
+  );
+}
+
 export default function CustomerImpact({ dmaCode }: { dmaCode: string }) {
   const [pressurePct, setPressurePct] = useState(50);
 
@@ -48,12 +72,13 @@ export default function CustomerImpact({ dmaCode }: { dmaCode: string }) {
     const classified = properties.map((p: any) => {
       const impact = classifyImpact(p, pressurePct);
       counts[impact as keyof typeof counts]++;
-      return { ...p, impact };
+      const height = Number(p.customer_height_m ?? p.elevation_m ?? p.height ?? 0);
+      const basePressure = Number(p.base_pressure ?? 25);
+      const simPressure = basePressure * (pressurePct / 100);
+      const effectivePressure = simPressure - height * 0.098;
+      return { ...p, impact, height, effectivePressure };
     });
-    classified.sort(
-      (a: any, b: any) =>
-        Number(b.customer_height_m ?? b.elevation_m ?? b.height ?? 0) - Number(a.customer_height_m ?? a.elevation_m ?? a.height ?? 0)
-    );
+    classified.sort((a: any, b: any) => b.height - a.height);
     return { classified, counts };
   }, [properties, pressurePct]);
 
@@ -66,6 +91,14 @@ export default function CustomerImpact({ dmaCode }: { dmaCode: string }) {
   const total = properties.length;
 
   const HIGH_THRESHOLD = 10;
+
+  // Prepare scatter data grouped by impact level
+  const scatterByImpact = {
+    high: classified.filter((p: any) => p.impact === "high"),
+    medium: classified.filter((p: any) => p.impact === "medium"),
+    low: classified.filter((p: any) => p.impact === "low"),
+    none: classified.filter((p: any) => p.impact === "none"),
+  };
 
   return (
     <div className="space-y-4">
@@ -84,14 +117,12 @@ export default function CustomerImpact({ dmaCode }: { dmaCode: string }) {
             onChange={(e) => setPressurePct(Number(e.target.value))}
             className="w-full h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer"
           />
-          {/* Tick marks */}
           <div className="flex justify-between mt-1 px-0.5">
             {[0, 25, 50, 75, 100].map((v) => (
               <span key={v} className="text-[9px] text-blue-400 tabular-nums">{v}%</span>
             ))}
           </div>
         </div>
-        {/* Preset buttons */}
         <div className="flex gap-2 mt-2">
           {PRESETS.map((p) => (
             <button
@@ -109,7 +140,7 @@ export default function CustomerImpact({ dmaCode }: { dmaCode: string }) {
         </div>
       </div>
 
-      {/* Impact summary cards with glow on high impact */}
+      {/* Impact summary cards */}
       <div className="grid grid-cols-4 gap-2 text-center text-xs">
         {([
           { key: "high", label: "High", color: "bg-red-100 text-red-800" },
@@ -135,34 +166,50 @@ export default function CustomerImpact({ dmaCode }: { dmaCode: string }) {
         {total} properties total — {counts.high + counts.medium} impacted at {pressurePct}% pressure
       </p>
 
-      {/* Property list */}
-      <div className="space-y-1.5 max-h-60 overflow-y-auto">
-        {classified.slice(0, 30).map((p: any, i: number) => (
-          <div
-            key={p.property_id || i}
-            className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-xs"
-          >
-            <div>
-              <span className="font-medium">{p.property_id || `Property ${i + 1}`}</span>
-              <span className="text-gray-400 ml-2">{humanize(p.property_type) || ""}</span>
-              {(p.customer_height_m ?? p.elevation_m ?? p.height) != null && (
-                <span className="text-gray-400 ml-2 tabular-nums">
-                  {Number(p.customer_height_m ?? p.elevation_m ?? p.height).toFixed(0)}m elev
-                </span>
-              )}
-            </div>
-            <span
-              className="w-3 h-3 rounded-full flex-shrink-0"
-              style={{ backgroundColor: IMPACT_COLORS[p.impact] }}
-              title={p.impact}
+      {/* Elevation vs Effective Pressure scatter chart */}
+      <div className="bg-gray-50 rounded-lg p-3">
+        <p className="text-xs font-medium text-gray-500 mb-2">Elevation vs Effective Pressure</p>
+        <ResponsiveContainer width="100%" height={200}>
+          <ScatterChart margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <XAxis
+              dataKey="height"
+              type="number"
+              name="Elevation"
+              tick={{ fontSize: 10 }}
+              label={{ value: "Elevation (m)", position: "insideBottom", offset: -2, style: { fontSize: 10 } }}
             />
-          </div>
-        ))}
-        {classified.length > 30 && (
-          <p className="text-xs text-gray-400 text-center py-1">
-            +{classified.length - 30} more properties
-          </p>
-        )}
+            <YAxis
+              dataKey="effectivePressure"
+              type="number"
+              name="Pressure"
+              tick={{ fontSize: 10 }}
+              label={{ value: "Eff. Pressure (m)", angle: -90, position: "insideLeft", style: { fontSize: 10 } }}
+            />
+            <Tooltip content={<ElevationTooltip />} />
+            {/* Danger zones */}
+            <ReferenceLine y={0} stroke="#DC2626" strokeDasharray="3 3" />
+            <ReferenceLine y={5} stroke="#F59E0B" strokeDasharray="3 3" />
+            <ReferenceLine y={10} stroke="#16A34A" strokeDasharray="3 3" />
+            {scatterByImpact.high.length > 0 && (
+              <Scatter name="High" data={scatterByImpact.high} fill={IMPACT_COLORS.high} r={3} />
+            )}
+            {scatterByImpact.medium.length > 0 && (
+              <Scatter name="Medium" data={scatterByImpact.medium} fill={IMPACT_COLORS.medium} r={3} />
+            )}
+            {scatterByImpact.low.length > 0 && (
+              <Scatter name="Low" data={scatterByImpact.low} fill={IMPACT_COLORS.low} r={2} />
+            )}
+            {scatterByImpact.none.length > 0 && (
+              <Scatter name="None" data={scatterByImpact.none} fill={IMPACT_COLORS.none} r={2} />
+            )}
+          </ScatterChart>
+        </ResponsiveContainer>
+        <div className="flex items-center justify-center gap-3 mt-1 text-[10px] text-gray-500">
+          <span>— <span className="text-red-500">0m</span> No supply</span>
+          <span>— <span className="text-amber-500">5m</span> Low pressure</span>
+          <span>— <span className="text-green-500">10m</span> Min acceptable</span>
+        </div>
       </div>
     </div>
   );

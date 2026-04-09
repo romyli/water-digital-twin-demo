@@ -346,16 +346,20 @@ export default function DMADetail({
           ) : (
             sortedSensors.map((s: any) => {
               const pressure = s.latest_pressure ?? s.avg_pressure;
+              // Friendly label: strip DEMO_ prefix, replace underscores
+              const label = (s.sensor_id || "")
+                .replace(/^DEMO_/, "")
+                .replace(/_/g, " ");
               return (
                 <button
                   key={s.sensor_id}
-                  onClick={() => setSelectedSensor(s.sensor_id)}
+                  onClick={(e) => { e.stopPropagation(); setSelectedSensor(s.sensor_id); }}
                   className="w-full text-left bg-gray-50 hover:bg-gray-100 rounded-lg px-3 py-2.5 text-sm transition-colors"
                 >
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="font-medium">{s.sensor_id}</span>
-                      {s.sensor_type && <span className="text-xs text-gray-400 ml-2">{s.sensor_type}</span>}
+                      <span className="font-medium">{label}</span>
+                      {s.sensor_type && <span className="text-xs text-gray-400 ml-2">{humanize(s.sensor_type)}</span>}
                     </div>
                     <PressureBar value={pressure != null ? Number(pressure) : null} />
                   </div>
@@ -376,7 +380,9 @@ export default function DMADetail({
                 <div className="flex justify-between items-start">
                   <span className="font-medium">{humanize(c.complaint_type) || "Complaint"}</span>
                   <span className="text-xs text-gray-400">
-                    {c.reported_at ? new Date(c.reported_at).toLocaleString() : ""}
+                    {(c.complaint_timestamp || c.reported_at)
+                      ? new Date(c.complaint_timestamp || c.reported_at).toLocaleString()
+                      : ""}
                   </span>
                 </div>
                 {c.description && (
