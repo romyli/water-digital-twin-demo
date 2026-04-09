@@ -252,11 +252,15 @@ async function setupRoutes(appkit: any) {
         [req.params.code, since]
       );
       if (rows.length === 0) {
-        // Static demo data — return all history for this DMA
+        // Static demo data — return the last 24h of history (96 entries at 15-min intervals)
+        // so the RAG timeline strip shows meaningful RED/AMBER/GREEN proportions
         rows = await query(
-          "SELECT dma_code, timestamp AS recorded_at, rag_status, avg_pressure, min_pressure FROM dma_rag_history WHERE dma_code = $1 ORDER BY timestamp ASC",
+          `SELECT dma_code, timestamp AS recorded_at, rag_status, avg_pressure, min_pressure
+           FROM dma_rag_history WHERE dma_code = $1
+           ORDER BY timestamp DESC LIMIT 96`,
           [req.params.code]
         );
+        rows.reverse();
       }
       res.json({ rag_history: rows });
     } catch (e: any) {
