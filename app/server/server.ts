@@ -321,9 +321,11 @@ async function setupRoutes(appkit: any) {
     try {
       const rows = await query(
         `SELECT d.dma_code, d.dma_name, ST_AsGeoJSON(d.geom) AS geojson,
-                s.rag_status, s.avg_pressure
+                s.rag_status, s.avg_pressure,
+                COALESCE(sm.sensitive_premises_count, 0) AS sensitive_premises_count
          FROM dim_dma d
          LEFT JOIN dma_status s ON d.dma_code = s.dma_code
+         LEFT JOIN dma_summary sm ON d.dma_code = sm.dma_code
          ORDER BY d.dma_code`
       );
       const features = rows.map((r: any) => {
@@ -335,6 +337,7 @@ async function setupRoutes(appkit: any) {
             dma_name: r.dma_name,
             rag_status: r.rag_status ?? "GREEN",
             avg_pressure: r.avg_pressure,
+            sensitive_premises_count: Number(r.sensitive_premises_count) || 0,
           },
           geometry: geom,
         };

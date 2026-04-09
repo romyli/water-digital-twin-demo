@@ -133,7 +133,8 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
       const rag = f.properties?.rag_status?.toUpperCase();
       if (rag === "RED") { c.ALARMED++; c.CHANGED++; }
       else if (rag === "AMBER") { c.CHANGED++; }
-      if (f.properties?.is_sensitive) c.SENSITIVE++;
+      // Check both is_sensitive flag and sensitive_premises_count > 0
+      if (f.properties?.is_sensitive || (f.properties?.sensitive_premises_count > 0)) c.SENSITIVE++;
     });
     return c;
   }, [geojson]);
@@ -147,7 +148,7 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
         const rag = f.properties?.rag_status?.toUpperCase();
         if (filter === "ALARMED") return rag === "RED";
         if (filter === "CHANGED") return rag === "RED" || rag === "AMBER";
-        if (filter === "SENSITIVE") return f.properties?.is_sensitive;
+        if (filter === "SENSITIVE") return f.properties?.is_sensitive || (f.properties?.sensitive_premises_count > 0);
         return true;
       }),
     };
@@ -446,23 +447,24 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
                 : "text-gray-700 hover:bg-gray-100"
             }`}
           >
-            Impact
+            Complaints & Sensitive
           </button>
         </div>
 
         {/* Bottom-right RAG legend */}
-        <div className="absolute bottom-20 right-3 z-10 bg-white/95 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 px-3 py-2.5 text-xs space-y-1.5">
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: RAG_FILL.RED.replace("0.35", "0.8") }} />
-            <span className="text-gray-700">RED — Alarmed</span>
+        <div className="absolute bottom-20 right-3 z-10 bg-white/95 backdrop-blur-sm rounded-lg shadow-md border border-gray-200 px-4 py-3 text-sm space-y-2">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">DMA Status</p>
+          <div className="flex items-center gap-2.5">
+            <span className="w-4 h-4 rounded" style={{ backgroundColor: "rgba(220, 38, 38, 0.7)" }} />
+            <span className="text-gray-800 font-medium">RED — Alarmed</span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: RAG_FILL.AMBER.replace("0.3", "0.8") }} />
-            <span className="text-gray-700">AMBER — Changed</span>
+          <div className="flex items-center gap-2.5">
+            <span className="w-4 h-4 rounded" style={{ backgroundColor: "rgba(245, 158, 11, 0.7)" }} />
+            <span className="text-gray-800 font-medium">AMBER — Changed</span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: RAG_FILL.GREEN.replace("0.2", "0.6") }} />
-            <span className="text-gray-700">GREEN — Normal</span>
+          <div className="flex items-center gap-2.5">
+            <span className="w-4 h-4 rounded" style={{ backgroundColor: "rgba(22, 163, 74, 0.5)" }} />
+            <span className="text-gray-800 font-medium">GREEN — Normal</span>
           </div>
           {/* Sensitive + complaint legend when panel open */}
           {selectedDMA && showOverlays && (complaintCount > 0 || sensitiveCount > 0) && (

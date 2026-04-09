@@ -8,6 +8,7 @@ import {
   fetchDMARagHistory,
   fetchReservoirs,
 } from "../api";
+import { humanize } from "../utils/format";
 import RAGBadge from "./common/RAGBadge";
 import TimelineStrip from "./common/TimelineStrip";
 import LoadingSpinner from "./common/LoadingSpinner";
@@ -21,18 +22,22 @@ function RootCauseChain({
   trunkMains,
   dmaCode,
   downstreamCount,
+  pumpRag,
+  trunkRag,
 }: {
   pumpAssets: any[];
   trunkMains: any[];
   dmaCode: string;
   downstreamCount?: number;
+  pumpRag: string;
+  trunkRag: string;
 }) {
   const nodes = [
     ...(pumpAssets.length > 0
-      ? [{ id: pumpAssets[0].asset_id, type: "Pump Station", rag: pumpAssets[0].rag_status || "RED" }]
+      ? [{ id: pumpAssets[0].asset_id, type: "Pump Station", rag: pumpRag }]
       : []),
     ...(trunkMains.length > 0
-      ? [{ id: trunkMains[0].asset_id, type: "Trunk Main", rag: trunkMains[0].rag_status || "AMBER" }]
+      ? [{ id: trunkMains[0].asset_id, type: "Trunk Main", rag: trunkRag }]
       : []),
     { id: dmaCode, type: "DMA", rag: "RED" },
     ...(downstreamCount != null && downstreamCount > 0
@@ -47,24 +52,27 @@ function RootCauseChain({
   };
 
   return (
-    <div className="flex items-center gap-0 overflow-x-auto py-2">
-      {nodes.map((node, i) => (
-        <div key={i} className="flex items-center">
-          <div
-            className={`rounded-lg border-2 px-3 py-2 text-center min-w-[90px] ${
-              ragBg[node.rag?.toUpperCase()] || ragBg.GREEN
-            }`}
-          >
-            <p className="text-xs font-bold">{node.id}</p>
-            <p className="text-[10px] opacity-70">{node.type}</p>
+    <div className="overflow-x-auto pb-1">
+      <div className="flex items-center gap-0 py-2 min-w-min">
+        {nodes.map((node, i) => (
+          <div key={i} className="flex items-center flex-shrink-0">
+            <div
+              className={`rounded-lg border-2 px-2.5 py-1.5 text-center ${
+                ragBg[node.rag?.toUpperCase()] || ragBg.GREEN
+              }`}
+              title={node.id}
+            >
+              <p className="text-[11px] font-bold truncate max-w-[80px]">{node.id}</p>
+              <p className="text-[10px] opacity-70">{humanize(node.type)}</p>
+            </div>
+            {i < nodes.length - 1 && (
+              <svg className="w-5 h-4 text-gray-400 flex-shrink-0" viewBox="0 0 20 16" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M2 8h12M11 3l4 5-4 5" />
+              </svg>
+            )}
           </div>
-          {i < nodes.length - 1 && (
-            <svg className="w-6 h-4 text-gray-400 flex-shrink-0" viewBox="0 0 24 16" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path d="M2 8h16M14 3l5 5-5 5" />
-            </svg>
-          )}
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
@@ -112,10 +120,11 @@ export default function DMADetail({
     enabled: !!dmaCode,
   });
 
-  const { data: sensorsData } = useQuery({
+  const { data: sensorsData, isLoading: loadingSensors, error: sensorsError } = useQuery({
     queryKey: ["dmaSensors", dmaCode],
     queryFn: () => fetchDMASensors(dmaCode),
     enabled: !!dmaCode,
+    retry: 2,
   });
 
   const { data: complaintsData } = useQuery({
@@ -151,6 +160,20 @@ export default function DMADetail({
   const sortedSensors = [...sensors].sort(
     (a: any, b: any) => (a.latest_pressure ?? 999) - (b.latest_pressure ?? 999)
   );
+
+  // Infer asset RAG status from incident context when the data doesn't include it.
+  // During an active incident, the root-cause pump station should show RED, not GREEN.
+  const incidentType = activeIncident?.incident_type?.toLowerCase() || "";
+  const inferAssetRag = (asset: any): string => {
+    const existing = asset.rag_status?.toUpperCase();
+    if (existing && existing !== "GREEN") return existing;
+    // If no explicit status and there's an active incident, infer from asset type
+    if (activeIncident) {
+      if (asset.asset_type === "pump_station" && incidentType.includes("pump")) return "RED";
+      if (asset.asset_type === "trunk_main") return "AMBER";
+    }
+    return existing || "GREEN";
+  };
 
   const pumpAssets = assets.filter((a: any) => a.asset_type === "pump_station");
   const trunkMains = assets.filter((a: any) => a.asset_type === "trunk_main");
@@ -252,6 +275,8 @@ export default function DMADetail({
                 trunkMains={trunkMains}
                 dmaCode={dmaCode}
                 downstreamCount={detail?.downstream_dma_count}
+                pumpRag={pumpAssets.length > 0 ? inferAssetRag(pumpAssets[0]) : "RED"}
+                trunkRag={trunkMains.length > 0 ? inferAssetRag(trunkMains[0]) : "AMBER"}
               />
               {detail?.total_properties != null && (
                 <p className="text-xs text-gray-400 mt-1">
@@ -296,9 +321,9 @@ export default function DMADetail({
                   >
                     <div>
                       <span className="font-medium">{a.asset_id}</span>
-                      <span className="text-gray-500 ml-2 text-xs">{a.asset_type}</span>
+                      <span className="text-gray-500 ml-2 text-xs">{humanize(a.asset_type)}</span>
                     </div>
-                    <RAGBadge status={a.rag_status || "GREEN"} />
+                    <RAGBadge status={inferAssetRag(a)} />
                   </div>
                 ))}
               </div>
@@ -309,7 +334,14 @@ export default function DMADetail({
 
       {activeTab === "sensors" && (
         <div className="space-y-1.5">
-          {sortedSensors.length === 0 ? (
+          {loadingSensors ? (
+            <LoadingSpinner message="Loading sensors..." />
+          ) : sensorsError ? (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+              <p className="font-medium">Failed to load sensors</p>
+              <p className="text-xs mt-1">{(sensorsError as Error).message}</p>
+            </div>
+          ) : sortedSensors.length === 0 ? (
             <EmptyState title="No sensors" message="No sensors found in this DMA." />
           ) : (
             sortedSensors.map((s: any) => {
@@ -342,12 +374,14 @@ export default function DMADetail({
             complaints.map((c: any, i: number) => (
               <div key={i} className="bg-gray-50 rounded-lg p-3 text-sm">
                 <div className="flex justify-between items-start">
-                  <span className="font-medium">{c.complaint_type || "Complaint"}</span>
+                  <span className="font-medium">{humanize(c.complaint_type) || "Complaint"}</span>
                   <span className="text-xs text-gray-400">
-                    {c.reported_at ? new Date(c.reported_at).toLocaleString() : "—"}
+                    {c.reported_at ? new Date(c.reported_at).toLocaleString() : ""}
                   </span>
                 </div>
-                <p className="text-gray-600 text-xs mt-1">{c.description || "No description"}</p>
+                {c.description && (
+                  <p className="text-gray-600 text-xs mt-1">{c.description}</p>
+                )}
                 {c.property_id && (
                   <p className="text-gray-400 text-xs mt-0.5">Property: {c.property_id}</p>
                 )}

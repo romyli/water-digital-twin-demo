@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, NavLink, useNavigate, useLocation } from 
 import { useQuery } from "@tanstack/react-query";
 import { fetchActiveIncidents, fetchHealth } from "./api";
 import { useCountdown } from "./hooks/useCountdown";
+import { humanize } from "./utils/format";
 import RAGBadge from "./components/common/RAGBadge";
 import ShiftHandover from "./components/ShiftHandover";
 import MapView from "./components/MapView";
@@ -70,27 +71,23 @@ function IncidentBanner({ incident }: { incident: any }) {
   const sensitiveCount = incident?.sensitive_site_count ?? "—";
 
   return (
-    <div className="bg-red-600 text-white px-4 py-2">
-      <div className="max-w-screen-2xl mx-auto">
-        {/* Top row */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="inline-block w-2 h-2 rounded-full bg-white animate-pulse" />
-            <span className="font-semibold text-sm">
-              {incident.incident_id}
-            </span>
-            <RAGBadge status="RED" label={incident.incident_type || "Active"} className="!bg-red-800/50 !text-white" />
-            <span className="text-red-100 text-sm">
-              {incident.description || ""}
-            </span>
-          </div>
-          <span className="font-mono font-bold text-lg tabular-nums">{elapsed}</span>
+    <div className="bg-red-600 text-white px-4 py-1.5">
+      <div className="max-w-screen-2xl mx-auto flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="inline-block w-2 h-2 rounded-full bg-white animate-pulse flex-shrink-0" />
+          <span className="font-semibold text-sm whitespace-nowrap">{incident.incident_id}</span>
+          <RAGBadge status="RED" label={humanize(incident.incident_type) || "Active"} className="!bg-red-800/50 !text-white flex-shrink-0" />
+          <span className="text-red-100 text-xs truncate hidden lg:inline">
+            {incident.description || ""}
+          </span>
         </div>
-        {/* Bottom row — KPI strip */}
-        <div className="flex items-center gap-6 mt-1 text-xs text-red-100">
-          <span>{dmaCount} DMAs</span>
-          <span>{propCount} properties</span>
-          <span>{sensitiveCount} sensitive sites</span>
+        <div className="flex items-center gap-5 flex-shrink-0">
+          <div className="flex items-center gap-4 text-xs text-red-100">
+            <span>{dmaCount} DMAs</span>
+            <span>{propCount} properties</span>
+            <span>{sensitiveCount} sensitive</span>
+          </div>
+          <span className="font-mono font-bold text-sm tabular-nums">{elapsed}</span>
         </div>
       </div>
     </div>

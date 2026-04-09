@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchDMAProperties } from "../api";
+import { humanize } from "../utils/format";
 import LoadingSpinner from "./common/LoadingSpinner";
 import EmptyState from "./common/EmptyState";
 
@@ -12,7 +13,10 @@ const IMPACT_COLORS: Record<string, string> = {
 };
 
 function classifyImpact(property: any, simulatedPressurePct: number) {
-  const height = Number(property.elevation_m ?? property.height ?? 0);
+  // Sensitive premises (hospitals, schools, care homes, dialysis) are always high impact
+  if (property.is_sensitive_premise || property.sensitive_premise_type) return "high";
+
+  const height = Number(property.customer_height_m ?? property.elevation_m ?? property.height ?? 0);
   const basePressure = Number(property.base_pressure ?? 25);
   const simPressure = basePressure * (simulatedPressurePct / 100);
   const effectivePressure = simPressure - height * 0.098;
@@ -23,9 +27,9 @@ function classifyImpact(property: any, simulatedPressurePct: number) {
 }
 
 const PRESETS = [
-  { label: "Current (~50%)", value: 50 },
+  { label: "50% of normal", value: 50 },
   { label: "Full outage (0%)", value: 0 },
-  { label: "Restored (100%)", value: 100 },
+  { label: "Fully restored (100%)", value: 100 },
 ];
 
 export default function CustomerImpact({ dmaCode }: { dmaCode: string }) {
@@ -48,7 +52,7 @@ export default function CustomerImpact({ dmaCode }: { dmaCode: string }) {
     });
     classified.sort(
       (a: any, b: any) =>
-        Number(b.elevation_m ?? b.height ?? 0) - Number(a.elevation_m ?? a.height ?? 0)
+        Number(b.customer_height_m ?? b.elevation_m ?? b.height ?? 0) - Number(a.customer_height_m ?? a.elevation_m ?? a.height ?? 0)
     );
     return { classified, counts };
   }, [properties, pressurePct]);
@@ -68,8 +72,8 @@ export default function CustomerImpact({ dmaCode }: { dmaCode: string }) {
       {/* What-if slider with tick marks and presets */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-medium text-blue-800">What-if: Simulated pressure level</p>
-          <span className="text-sm font-semibold text-blue-700 tabular-nums">{pressurePct}%</span>
+          <p className="text-xs font-medium text-blue-800">What-if: Pressure as % of normal</p>
+          <span className="text-sm font-semibold text-blue-700 tabular-nums">{pressurePct}% of normal</span>
         </div>
         <div className="relative">
           <input
@@ -140,10 +144,10 @@ export default function CustomerImpact({ dmaCode }: { dmaCode: string }) {
           >
             <div>
               <span className="font-medium">{p.property_id || `Property ${i + 1}`}</span>
-              <span className="text-gray-400 ml-2">{p.property_type || ""}</span>
-              {(p.elevation_m ?? p.height) != null && (
+              <span className="text-gray-400 ml-2">{humanize(p.property_type) || ""}</span>
+              {(p.customer_height_m ?? p.elevation_m ?? p.height) != null && (
                 <span className="text-gray-400 ml-2 tabular-nums">
-                  {Number(p.elevation_m ?? p.height).toFixed(0)}m elev
+                  {Number(p.customer_height_m ?? p.elevation_m ?? p.height).toFixed(0)}m elev
                 </span>
               )}
             </div>

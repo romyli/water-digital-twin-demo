@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchActiveIncidents, fetchIncidentEvents, fetchRecentEvents } from "../api";
-import { format, formatDistanceToNow } from "date-fns";
+import { format } from "date-fns";
+import { humanize, relativeTimeShort } from "../utils/format";
 import RAGBadge from "./common/RAGBadge";
 import LoadingSpinner from "./common/LoadingSpinner";
 import EmptyState from "./common/EmptyState";
@@ -127,7 +128,7 @@ export default function AlarmLog(_props: { activeIncident: any }) {
             <tbody className="divide-y divide-gray-100">
               {filteredEvents.map((evt: any, i: number) => {
                 const ts = evt.event_timestamp ? new Date(evt.event_timestamp) : null;
-                const relTime = ts ? formatDistanceToNow(ts, { addSuffix: true }) : null;
+                const relTime = ts ? relativeTimeShort(ts) : null;
                 const absTime = ts ? format(ts, "dd MMM HH:mm:ss") : null;
                 const isExpanded = expandedRow === i;
                 return (
@@ -143,7 +144,7 @@ export default function AlarmLog(_props: { activeIncident: any }) {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <RAGBadge status={eventTypeColor(evt.event_type)} label={evt.event_type || "—"} />
+                      <RAGBadge status={eventTypeColor(evt.event_type)} label={humanize(evt.event_type) || "—"} />
                     </td>
                     <td className="px-4 py-3 text-gray-600">{evt.actor || "—"}</td>
                     <td className="px-4 py-3 text-gray-700">

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchRegulatory, createCommsRequest } from "../api";
 import { format } from "date-fns";
 import { useCountdown } from "../hooks/useCountdown";
+import { humanize } from "../utils/format";
 import LoadingSpinner from "./common/LoadingSpinner";
 import EmptyState from "./common/EmptyState";
 
@@ -78,8 +79,8 @@ function DeadlineBar({
         </div>
         <div className="text-right">
           {isBreached ? (
-            <span className="text-red-600 font-bold text-sm line-through tabular-nums">
-              {deadline.hours}h threshold
+            <span className="inline-flex items-center gap-1.5 bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-xs font-bold">
+              BREACHED — {deadline.hours}h
             </span>
           ) : isDone ? (
             <span className="text-green-600 font-medium text-sm">Complete</span>
@@ -230,7 +231,7 @@ export default function RegulatoryView({ incident }: { incident: any }) {
             {properties.map((p: any) => (
               <div key={p.property_type} className="bg-gray-50 rounded-lg p-3 text-center">
                 <p className="text-2xl font-bold text-water-800 tabular-nums">{p.count}</p>
-                <p className="text-xs text-gray-500 capitalize">{p.property_type || "Other"}</p>
+                <p className="text-xs text-gray-500">{humanize(p.property_type) || "Other"}</p>
               </div>
             ))}
             <div className="bg-water-50 rounded-lg p-3 text-center border-2 border-water-200">
