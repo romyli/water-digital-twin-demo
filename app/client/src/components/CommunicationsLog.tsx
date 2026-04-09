@@ -46,7 +46,9 @@ export default function CommunicationsLog({
     initialData: initialComms ? { communications: initialComms } : undefined,
   });
 
-  const comms = data?.communications || initialComms || [];
+  // Reverse so oldest is at top, most recent at bottom (chat-style chronological)
+  const rawComms = data?.communications || initialComms || [];
+  const comms = [...rawComms].reverse();
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {

@@ -42,10 +42,24 @@ async function setupRoutes(appkit: any) {
   // ---- Incidents --------------------------------------------------------
   app.get("/api/incidents/active", async (_req: any, res: any) => {
     try {
-      const rows = await query(
-        "SELECT * FROM dim_incidents WHERE status = 'active' ORDER BY created_at DESC"
-      );
-      res.json({ incidents: rows });
+      const [rows, dmaSummary] = await Promise.all([
+        query("SELECT * FROM dim_incidents WHERE status = 'active' ORDER BY created_at DESC"),
+        queryOne(
+          `SELECT COUNT(DISTINCT s.dma_code) AS affected_dma_count,
+                  COALESCE(SUM(sm.property_count), 0) AS total_properties,
+                  COALESCE(SUM(sm.sensitive_premises_count), 0) AS sensitive_site_count
+           FROM dma_status s
+           LEFT JOIN dma_summary sm ON s.dma_code = sm.dma_code
+           WHERE s.rag_status IN ('RED', 'AMBER')`
+        ),
+      ]);
+      const enriched = rows.map((inc: any) => ({
+        ...inc,
+        affected_dma_count: Number(dmaSummary?.affected_dma_count) || 0,
+        affected_properties: Number(dmaSummary?.total_properties) || 0,
+        sensitive_site_count: Number(dmaSummary?.sensitive_site_count) || 0,
+      }));
+      res.json({ incidents: enriched });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -108,14 +122,29 @@ async function setupRoutes(appkit: any) {
         "SELECT * FROM dim_incidents WHERE incident_id = $1", [id]
       );
       if (!incident) return res.status(404).json({ error: "Incident not found" });
-      const [events, comms] = await Promise.all([
+      const [events, comms, dmaSummary] = await Promise.all([
         query("SELECT * FROM incident_events WHERE incident_id = $1 ORDER BY event_timestamp ASC", [id]),
         query(`SELECT * FROM ${COMMS_UNION} WHERE incident_id = $1 ORDER BY comms_timestamp DESC`, [id]),
+        queryOne(
+          `SELECT COUNT(DISTINCT s.dma_code) AS affected_dma_count,
+                  COALESCE(SUM(sm.property_count), 0) AS total_properties,
+                  COALESCE(SUM(sm.sensitive_premises_count), 0) AS sensitive_site_count
+           FROM dma_status s
+           LEFT JOIN dma_summary sm ON s.dma_code = sm.dma_code
+           WHERE s.rag_status IN ('RED', 'AMBER')`
+        ),
       ]);
+      // Enrich incident with computed counts
+      const enriched = {
+        ...incident,
+        affected_dma_count: Number(dmaSummary?.affected_dma_count) || 0,
+        affected_properties: Number(dmaSummary?.total_properties) || 0,
+        sensitive_site_count: Number(dmaSummary?.sensitive_site_count) || 0,
+      };
       // The incident_events table has no "status" column — all events are completed facts.
       // Outstanding actions come from the playbook, not from events.
       res.json({
-        incident,
+        incident: enriched,
         actions_taken: events,
         outstanding_actions: [],
         communications: comms,

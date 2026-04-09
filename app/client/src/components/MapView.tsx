@@ -213,7 +213,7 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
   ];
 
   return (
-    <div className="relative h-[calc(100vh-3rem)] flex">
+    <div className="relative h-full flex">
       <div className="flex-1 relative">
         <Map
           initialViewState={{ longitude: -0.08, latitude: 51.49, zoom: 11 }}

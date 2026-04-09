@@ -198,10 +198,10 @@ export default function App() {
   return (
     <BrowserRouter>
       <KeyboardShortcuts />
-      <div className="min-h-screen flex flex-col">
+      <div className="h-screen flex flex-col overflow-hidden">
         <NavBar hasIncident={hasIncident} />
         {hasIncident && <IncidentBanner incident={activeIncident} />}
-        <main className="flex-1">
+        <main className="flex-1 min-h-0 overflow-auto">
           <Routes>
             <Route
               path="/"
