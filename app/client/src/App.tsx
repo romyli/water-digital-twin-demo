@@ -65,8 +65,8 @@ function ConnectionStatus() {
 }
 
 /* ---------- Incident Banner ---------- */
-function IncidentBanner({ incident }: { incident: any }) {
-  const { elapsed } = useCountdown(incident?.created_at || incident?.start_timestamp);
+function IncidentBanner({ incident, timeOffset }: { incident: any; timeOffset: number }) {
+  const { elapsed } = useCountdown(incident?.created_at || incident?.start_timestamp, timeOffset);
   const dmaCount = incident?.affected_dma_count ?? incident?.dma_count ?? "—";
   const propCount = incident?.affected_properties ?? incident?.property_count ?? "—";
   const sensitiveCount = incident?.sensitive_site_count ?? "—";
@@ -307,13 +307,13 @@ export default function App() {
       <DemoControl />
       <div className="h-screen flex flex-col overflow-hidden">
         <NavBar hasIncident={hasIncident} timeOffset={timeOffset} />
-        {hasIncident && <IncidentBanner incident={activeIncident} />}
+        {hasIncident && <IncidentBanner incident={activeIncident} timeOffset={timeOffset} />}
         <main className="flex-1 min-h-0 overflow-auto">
           <Routes>
             <Route
               path="/"
               element={
-                hasIncident ? <ShiftHandover incident={activeIncident} /> : <NetworkNormal />
+                hasIncident ? <ShiftHandover incident={activeIncident} timeOffset={timeOffset} /> : <NetworkNormal />
               }
             />
             <Route path="/map" element={<MapView activeIncident={activeIncident} />} />

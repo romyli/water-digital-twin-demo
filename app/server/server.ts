@@ -56,26 +56,11 @@ async function setupRoutes(appkit: any) {
   // --- Demo scenario state (in-memory) ------------------------------------
   let demoScenarioActive = false;
   let demoActivatedAt: Date | null = null;
-  let demoTimeOffset = 0; // ms to add to all timestamps when scenario is active
+  let demoTimeOffset = 0; // ms offset: real_now - demo_world_now
 
-  function shiftTime(ts: string | Date | null | undefined): string | null {
-    if (!ts || !demoTimeOffset) return (ts as string) ?? null;
-    const d = new Date(typeof ts === "string" ? ts : (ts as Date).toISOString());
-    return new Date(d.getTime() + demoTimeOffset).toISOString();
-  }
-
-  function shiftRow(row: any, ...fields: string[]): any {
-    if (!demoScenarioActive || !demoTimeOffset) return row;
-    const copy = { ...row };
-    for (const f of fields) {
-      if (copy[f] != null) copy[f] = shiftTime(copy[f]);
-    }
-    return copy;
-  }
-
-  function shiftRows(rows: any[], ...fields: string[]): any[] {
-    if (!demoScenarioActive || !demoTimeOffset) return rows;
-    return rows.map((r) => shiftRow(r, ...fields));
+  /** Current time in demo-world (for server-side calculations and time-windowed queries) */
+  function demoNow(): number {
+    return demoNow();
   }
 
   // Communications: Delta-synced seed (communications_log) + app writes (app_communications_log)
@@ -129,11 +114,13 @@ async function setupRoutes(appkit: any) {
       demoActivatedAt = null;
       demoTimeOffset = 0;
       // Clear app-written data for a fresh demo run
-      await Promise.all([
-        appkit.lakebase.query("TRUNCATE app_communications_log"),
-        appkit.lakebase.query("TRUNCATE app_playbook_action_log"),
-        appkit.lakebase.query("TRUNCATE app_comms_requests"),
+      const results = await Promise.allSettled([
+        appkit.lakebase.query("DELETE FROM app_communications_log"),
+        appkit.lakebase.query("DELETE FROM app_playbook_action_log"),
+        appkit.lakebase.query("DELETE FROM app_comms_requests"),
       ]);
+      const failed = results.filter((r) => r.status === "rejected");
+      if (failed.length) console.warn("[demo] Some tables failed to clear:", failed.map((r: any) => r.reason?.message));
       console.log("[demo] Scenario reset. App write-back tables cleared.");
       res.json({ scenarioActive: false, activatedAt: null });
     } catch (e: any) {
@@ -156,12 +143,12 @@ async function setupRoutes(appkit: any) {
            WHERE s.rag_status IN ('RED', 'AMBER')`
         ),
       ]);
-      const enriched = rows.map((inc: any) => shiftRow({
+      const enriched = rows.map((inc: any) => ({
         ...inc,
         affected_dma_count: Number(dmaSummary?.affected_dma_count) || 0,
         affected_properties: Number(dmaSummary?.total_properties) || 0,
         sensitive_site_count: Number(dmaSummary?.sensitive_site_count) || 0,
-      }, "start_timestamp", "created_at"));
+      }));
       res.json({ incidents: enriched });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -180,9 +167,9 @@ async function setupRoutes(appkit: any) {
         query(`SELECT * FROM ${COMMS_UNION} WHERE incident_id = $1 ORDER BY comms_timestamp DESC`, [id]),
       ]);
       res.json({
-        incident: shiftRow(incident, "start_timestamp", "created_at"),
-        events: shiftRows(events, "event_timestamp"),
-        communications: shiftRows(comms, "comms_timestamp"),
+        incident,
+        events,
+        communications: comms,
       });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -194,7 +181,7 @@ async function setupRoutes(appkit: any) {
     try {
       // Try real-time window first; fall back to most recent events if demo data is static
       const hours = Math.min(168, Math.max(1, Number(req.query.hours) || 24));
-      const now = demoScenarioActive && demoTimeOffset ? Date.now() - demoTimeOffset : Date.now();
+      const now = demoNow();
       const since = new Date(now - hours * 3600_000).toISOString();
       let rows = await query(
         "SELECT * FROM incident_events WHERE event_timestamp >= $1 ORDER BY event_timestamp DESC LIMIT 200",
@@ -206,7 +193,7 @@ async function setupRoutes(appkit: any) {
           "SELECT * FROM incident_events ORDER BY event_timestamp DESC LIMIT 200"
         );
       }
-      res.json({ events: shiftRows(rows, "event_timestamp") });
+      res.json({ events: rows });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -218,7 +205,7 @@ async function setupRoutes(appkit: any) {
         "SELECT * FROM incident_events WHERE incident_id = $1 ORDER BY event_timestamp DESC",
         [req.params.id]
       );
-      res.json({ events: shiftRows(rows, "event_timestamp") });
+      res.json({ events: rows });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -272,10 +259,10 @@ async function setupRoutes(appkit: any) {
         anomaly_lead_minutes: anomalyLeadMinutes,
       };
       res.json({
-        incident: shiftRow(enriched, "start_timestamp", "created_at", "first_complaint_time"),
-        actions_taken: shiftRows(events, "event_timestamp"),
-        outstanding_actions: shiftRows(outstandingActions, "due_by"),
-        communications: shiftRows(comms, "comms_timestamp"),
+        incident: enriched,
+        actions_taken: events,
+        outstanding_actions: outstandingActions,
+        communications: comms,
       });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -394,7 +381,7 @@ async function setupRoutes(appkit: any) {
         "SELECT * FROM customer_complaints WHERE dma_code = $1 ORDER BY complaint_timestamp DESC LIMIT 50",
         [req.params.code]
       );
-      res.json({ complaints: shiftRows(rows, "complaint_timestamp") });
+      res.json({ complaints: rows });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -418,7 +405,7 @@ async function setupRoutes(appkit: any) {
   app.get("/api/dma/:code/rag-history", async (req: any, res: any) => {
     try {
       const hours = Math.min(168, Math.max(1, Number(req.query.hours) || 24));
-      const now = demoScenarioActive && demoTimeOffset ? Date.now() - demoTimeOffset : Date.now();
+      const now = demoNow();
       const since = new Date(now - hours * 3600_000).toISOString();
       let rows = await query(
         "SELECT dma_code, timestamp AS recorded_at, rag_status, avg_pressure, min_pressure FROM dma_rag_history WHERE dma_code = $1 AND timestamp >= $2 ORDER BY timestamp ASC",
@@ -435,7 +422,7 @@ async function setupRoutes(appkit: any) {
         );
         rows.reverse();
       }
-      res.json({ rag_history: shiftRows(rows, "recorded_at") });
+      res.json({ rag_history: rows });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -447,7 +434,7 @@ async function setupRoutes(appkit: any) {
     try {
       const hours = Math.min(168, Math.max(1, Number(req.query.hours) || 24));
       // When demo is active, shift the time window back so it hits the original data range
-      const now = demoScenarioActive && demoTimeOffset ? Date.now() - demoTimeOffset : Date.now();
+      const now = demoNow();
       const since = new Date(now - hours * 3600_000).toISOString();
       let rows = await query(
         `SELECT sensor_id, sensor_type, timestamp AS ts, value
@@ -591,7 +578,7 @@ async function setupRoutes(appkit: any) {
   app.get("/api/map/complaints", async (_req: any, res: any) => {
     if (!demoScenarioActive) return res.json({ type: "FeatureCollection", features: [] });
     try {
-      const now = demoScenarioActive && demoTimeOffset ? Date.now() - demoTimeOffset : Date.now();
+      const now = demoNow();
       const since = new Date(now - 7 * 24 * 3600_000).toISOString();
       const rows = await query(
         `SELECT c.complaint_type, c.complaint_timestamp, c.property_id, c.dma_code,
@@ -606,7 +593,7 @@ async function setupRoutes(appkit: any) {
         type: "Feature",
         properties: {
           complaint_type: r.complaint_type,
-          complaint_timestamp: shiftTime(r.complaint_timestamp),
+          complaint_timestamp: r.complaint_timestamp,
           property_id: r.property_id,
           dma_code: r.dma_code,
         },
@@ -773,7 +760,7 @@ async function setupRoutes(appkit: any) {
         `SELECT * FROM ${COMMS_UNION} WHERE incident_id = $1 ORDER BY comms_timestamp DESC`,
         [req.params.incidentId]
       );
-      res.json({ communications: shiftRows(rows, "comms_timestamp") });
+      res.json({ communications: rows });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -851,10 +838,9 @@ async function setupRoutes(appkit: any) {
       );
 
       let hoursElapsed = 0;
-      const rawCreatedAt = incident.created_at || incident.start_timestamp;
-      const createdAt = shiftTime(rawCreatedAt) ?? rawCreatedAt;
+      const createdAt = incident.created_at || incident.start_timestamp;
       if (createdAt) {
-        hoursElapsed = (Date.now() - new Date(createdAt).getTime()) / 3_600_000;
+        hoursElapsed = (demoNow() - new Date(createdAt).getTime()) / 3_600_000;
       }
 
       const gracePeriod = rule("OFWAT_GRACE_PERIOD");
@@ -876,7 +862,7 @@ async function setupRoutes(appkit: any) {
 
       res.json({
         incident_id: incidentId,
-        incident: shiftRow(incident, "start_timestamp", "created_at"),
+        incident,
         affected_properties: properties,
         total_properties: totalProperties,
         proactive_comms_requested: commsRequested,

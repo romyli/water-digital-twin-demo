@@ -70,11 +70,13 @@ export default function AssetDetail({
   const playbookSteps = playbookData?.steps || [];
 
   const chartData = useMemo(() => {
-    return telemetry.map((t: any) => ({
-      time: t.ts ? format(new Date(t.ts), "HH:mm") : "",
-      pressure: t.pressure != null ? Number(t.pressure) : null,
-      flow: t.flow != null ? Number(t.flow) : null,
-    }));
+    return telemetry
+      .filter((t: any) => t.ts)
+      .map((t: any) => ({
+        time: format(new Date(t.ts), "HH:mm"),
+        pressure: t.pressure != null ? Number(t.pressure) : null,
+        flow: t.flow != null ? Number(t.flow) : null,
+      }));
   }, [telemetry]);
 
   // Oldest anomaly in the window (API returns DESC order, so last = earliest)
@@ -163,7 +165,7 @@ export default function AssetDetail({
 
       {/* Chart with annotations */}
       {chartData.length > 0 ? (
-        <div className="bg-gray-50 rounded-lg p-3">
+        <div className="bg-gray-50 rounded-lg p-3" style={{ minHeight: 300 }}>
           <p className="text-xs font-medium text-gray-500 mb-2">Telemetry (24h)</p>
           <ResponsiveContainer width="100%" height={280}>
             <ComposedChart data={chartData}>

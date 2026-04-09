@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { differenceInSeconds } from "date-fns";
 
-export function useCountdown(startTime?: string) {
+export function useCountdown(startTime?: string, timeOffset = 0) {
   const [elapsed, setElapsed] = useState("00:00:00");
   const [seconds, setSeconds] = useState(0);
 
@@ -9,7 +9,9 @@ export function useCountdown(startTime?: string) {
     if (!startTime) return;
     const start = new Date(startTime);
     const tick = () => {
-      const s = differenceInSeconds(new Date(), start);
+      // Use demo-world "now" when timeOffset is provided
+      const now = timeOffset ? new Date(Date.now() - timeOffset) : new Date();
+      const s = differenceInSeconds(now, start);
       setSeconds(s);
       const h = Math.floor(s / 3600);
       const m = Math.floor((s % 3600) / 60);
@@ -21,7 +23,7 @@ export function useCountdown(startTime?: string) {
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [startTime]);
+  }, [startTime, timeOffset]);
 
   return { elapsed, seconds };
 }

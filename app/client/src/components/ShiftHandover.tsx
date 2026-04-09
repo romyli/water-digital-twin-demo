@@ -9,7 +9,7 @@ import LoadingSpinner from "./common/LoadingSpinner";
 import EmptyState from "./common/EmptyState";
 import CommunicationsLog from "./CommunicationsLog";
 
-export default function ShiftHandover({ incident }: { incident: any }) {
+export default function ShiftHandover({ incident, timeOffset = 0 }: { incident: any; timeOffset?: number }) {
   const [acknowledged, setAcknowledged] = useState(false);
   const [ackTime, setAckTime] = useState<Date | null>(null);
   const queryClient = useQueryClient();
@@ -34,7 +34,7 @@ export default function ShiftHandover({ incident }: { incident: any }) {
     },
   });
 
-  const { elapsed } = useCountdown(incident?.created_at || incident?.start_timestamp);
+  const { elapsed } = useCountdown(incident?.created_at || incident?.start_timestamp, timeOffset);
 
   if (isLoading) return <LoadingSpinner message="Loading shift handover..." />;
   if (error)
@@ -52,21 +52,28 @@ export default function ShiftHandover({ incident }: { incident: any }) {
 
   const createdAt = inc.created_at ? new Date(inc.created_at) : null;
 
-  // Build timeline nodes
-  const timelineNodes: TimelineNode[] = [
-    ...actionsTaken.map((a: any) => ({
-      label: a.event_type || "Action",
-      description: a.description,
-      timestamp: a.event_timestamp,
-      status: "done" as const,
-    })),
-    ...outstanding.map((a: any) => ({
-      label: a.event_type || "Action",
-      description: a.description,
-      timestamp: a.event_timestamp,
-      status: "outstanding" as const,
-    })),
-  ];
+  const anomalyLeadMinutes = inc.anomaly_lead_minutes;
+
+  // Build timeline nodes from completed actions
+  const timelineNodes: TimelineNode[] = actionsTaken.map((a: any) => ({
+    label: a.event_type || "Action",
+    description: a.description,
+    timestamp: a.event_timestamp,
+    status: "done" as const,
+  }));
+
+  const PRIORITY_COLORS: Record<string, string> = {
+    critical: "border-l-red-500 bg-red-50",
+    high: "border-l-amber-500 bg-amber-50",
+    medium: "border-l-yellow-400 bg-yellow-50",
+    low: "border-l-gray-300 bg-gray-50",
+  };
+  const PRIORITY_BADGE: Record<string, string> = {
+    critical: "bg-red-100 text-red-800",
+    high: "bg-amber-100 text-amber-800",
+    medium: "bg-yellow-100 text-yellow-800",
+    low: "bg-gray-100 text-gray-600",
+  };
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-5 pb-24">
@@ -100,7 +107,7 @@ export default function ShiftHandover({ incident }: { incident: any }) {
       </div>
 
       {/* KPI Row */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 border-l-4 border-l-red-500">
           <p className="text-xs text-gray-500">Duration</p>
           <p className="kpi-display text-xl text-gray-900">{elapsed}</p>
@@ -117,6 +124,15 @@ export default function ShiftHandover({ incident }: { incident: any }) {
             {inc.affected_properties ?? inc.property_count ?? "—"}
           </p>
         </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 border-l-4 border-l-emerald-500">
+          <p className="text-xs text-gray-500">Anomaly Lead Time</p>
+          <p className="kpi-display text-xl text-gray-900">
+            {anomalyLeadMinutes != null ? `${anomalyLeadMinutes} min` : "—"}
+          </p>
+          {anomalyLeadMinutes != null && (
+            <p className="text-[10px] text-gray-400">Detection → 1st complaint</p>
+          )}
+        </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 border-l-4 border-l-purple-500">
           <p className="text-xs text-gray-500">Escalation Risk</p>
           <p className="text-sm font-semibold text-gray-900">
@@ -125,7 +141,44 @@ export default function ShiftHandover({ incident }: { incident: any }) {
         </div>
       </div>
 
-      {/* Actions Timeline */}
+      {/* Outstanding Actions */}
+      {outstanding.length > 0 && (
+        <div className="card">
+          <h2 className="panel-title">Outstanding Actions ({outstanding.length})</h2>
+          <div className="space-y-2">
+            {outstanding.map((a: any) => (
+              <div
+                key={a.action_id}
+                className={`border-l-4 rounded-lg p-3 ${PRIORITY_COLORS[a.priority] || PRIORITY_COLORS.low}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900">{a.action_description}</p>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${PRIORITY_BADGE[a.priority] || PRIORITY_BADGE.low}`}>
+                        {a.priority}
+                      </span>
+                      {a.assigned_role && (
+                        <span className="text-xs text-gray-500">{a.assigned_role}</span>
+                      )}
+                      {a.due_by && (
+                        <span className="text-xs text-gray-400">
+                          Due: {format(new Date(a.due_by), "HH:mm")}
+                        </span>
+                      )}
+                    </div>
+                    {a.notes && (
+                      <p className="text-xs text-gray-500 mt-1">{a.notes}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Completed Actions Timeline */}
       <div className="card">
         <h2 className="panel-title">Actions Timeline</h2>
         {timelineNodes.length > 0 ? (
