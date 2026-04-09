@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { Map, Source, Layer, Popup, NavigationControl } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useQuery } from "@tanstack/react-query";
@@ -37,16 +37,23 @@ const strokeColor: any = [
   RAG_STROKE.GREEN,
 ];
 
-// Pressure-based color for sensor dots
 const sensorColor: any = [
-  "case",
-  ["==", ["get", "rag_status"], "RED"], "#DC2626",
-  ["==", ["get", "rag_status"], "AMBER"], "#F59E0B",
-  "#16A34A",
+  "interpolate", ["linear"],
+  ["coalesce", ["get", "avg_pressure"], 25],
+  0, "#DC2626",
+  10, "#F59E0B",
+  20, "#16A34A",
+  30, "#059669",
 ];
 
-// Sensitive premise type → color
-const sensitiveColor: any = [
+const SENSITIVE_CONFIG: Record<string, { color: string; label: string; letter: string }> = {
+  hospital:         { color: "#DC2626", label: "Hospital",  letter: "H" },
+  school:           { color: "#2563EB", label: "School",    letter: "S" },
+  care_home:        { color: "#7C3AED", label: "Care Home", letter: "C" },
+  dialysis_centre:  { color: "#EA580C", label: "Dialysis",  letter: "D" },
+};
+
+const sensitiveTextColor: any = [
   "match", ["get", "sensitive_type"],
   "hospital", "#DC2626",
   "school", "#2563EB",
@@ -55,12 +62,14 @@ const sensitiveColor: any = [
   "#6366F1",
 ];
 
-const SENSITIVE_LABELS: Record<string, string> = {
-  hospital: "Hospital",
-  school: "School",
-  care_home: "Care Home",
-  dialysis_centre: "Dialysis",
-};
+const sensitiveLetter: any = [
+  "match", ["get", "sensitive_type"],
+  "hospital", "H",
+  "school", "S",
+  "care_home", "C",
+  "dialysis_centre", "D",
+  "?",
+];
 
 export default function MapView({ activeIncident }: { activeIncident: any }) {
   const [selectedDMA, setSelectedDMA] = useState<string | null>(null);
@@ -71,8 +80,19 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
     lng: number; lat: number;
     dma_code: string; dma_name: string; rag_status: string;
   } | null>(null);
+  const [overlayHover, setOverlayHover] = useState<{
+    lng: number; lat: number;
+    layer: "sensor" | "complaint" | "sensitive";
+    props: Record<string, any>;
+  } | null>(null);
 
-  // --- Data queries ---
+  // Escape to close panel
+  useEffect(() => {
+    const handler = () => setSelectedDMA(null);
+    window.addEventListener("app:escape", handler);
+    return () => window.removeEventListener("app:escape", handler);
+  }, []);
+
   const { data: geojson, isLoading, error: geoError } = useQuery({
     queryKey: ["mapGeoJSON"],
     queryFn: fetchMapGeoJSON,
@@ -104,7 +124,20 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
     enabled: !!selectedDMA && showOverlays,
   });
 
-  // --- Filtering ---
+  // Count DMAs by RAG status
+  const dmaCounts = useMemo(() => {
+    const c = { ALL: 0, ALARMED: 0, CHANGED: 0, SENSITIVE: 0 };
+    if (!geojson?.features) return c;
+    c.ALL = geojson.features.length;
+    geojson.features.forEach((f: any) => {
+      const rag = f.properties?.rag_status?.toUpperCase();
+      if (rag === "RED") { c.ALARMED++; c.CHANGED++; }
+      else if (rag === "AMBER") { c.CHANGED++; }
+      if (f.properties?.is_sensitive) c.SENSITIVE++;
+    });
+    return c;
+  }, [geojson]);
+
   const filteredGeoJSON = useMemo(() => {
     if (!geojson?.features) return geojson;
     if (filter === "ALL") return geojson;
@@ -120,17 +153,34 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
     };
   }, [geojson, filter]);
 
-  // --- Interactions ---
+  const overlayLayerIds = ["sensor-dots", "complaint-dots", "sensitive-bg"];
+  const allInteractiveIds = ["dma-fill", ...overlayLayerIds];
+
   const onClick = useCallback((e: MapLayerMouseEvent) => {
     const feature = e.features?.[0];
-    if (feature?.properties?.dma_code) {
+    if (feature?.layer?.id === "dma-fill" && feature?.properties?.dma_code) {
       setSelectedDMA(feature.properties.dma_code);
     }
   }, []);
 
   const onHover = useCallback((e: MapLayerMouseEvent) => {
     const feature = e.features?.[0];
-    if (feature?.properties) {
+    if (!feature?.properties) {
+      setHoverInfo(null);
+      setOverlayHover(null);
+      return;
+    }
+    const layerId = feature.layer?.id;
+    if (layerId === "sensor-dots") {
+      setOverlayHover({ lng: e.lngLat.lng, lat: e.lngLat.lat, layer: "sensor", props: feature.properties });
+      setHoverInfo(null);
+    } else if (layerId === "complaint-dots") {
+      setOverlayHover({ lng: e.lngLat.lng, lat: e.lngLat.lat, layer: "complaint", props: feature.properties });
+      setHoverInfo(null);
+    } else if (layerId === "sensitive-bg") {
+      setOverlayHover({ lng: e.lngLat.lng, lat: e.lngLat.lat, layer: "sensitive", props: feature.properties });
+      setHoverInfo(null);
+    } else if (layerId === "dma-fill") {
       setHoverInfo({
         lng: e.lngLat.lng,
         lat: e.lngLat.lat,
@@ -138,8 +188,10 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
         dma_name: feature.properties.dma_name || feature.properties.dma_code,
         rag_status: feature.properties.rag_status || "GREEN",
       });
+      setOverlayHover(null);
     } else {
       setHoverInfo(null);
+      setOverlayHover(null);
     }
   }, []);
 
@@ -160,21 +212,20 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
   ];
 
   return (
-    <div className="relative h-[calc(100vh-3.5rem)] flex">
+    <div className="relative h-[calc(100vh-3rem)] flex">
       <div className="flex-1 relative">
         <Map
           initialViewState={{ longitude: -0.08, latitude: 51.49, zoom: 11 }}
           style={{ position: "absolute", inset: 0 }}
           mapStyle={MAP_STYLE}
-          interactiveLayerIds={["dma-fill"]}
+          interactiveLayerIds={allInteractiveIds}
           onClick={onClick}
           onMouseMove={onHover}
-          onMouseLeave={() => setHoverInfo(null)}
-          cursor={hoverInfo ? "pointer" : "grab"}
+          onMouseLeave={() => { setHoverInfo(null); setOverlayHover(null); }}
+          cursor={(hoverInfo || overlayHover) ? "pointer" : "grab"}
         >
           <NavigationControl position="top-right" />
 
-          {/* DMA polygons */}
           {filteredGeoJSON && (
             <Source id="dma-polygons" type="geojson" data={filteredGeoJSON}>
               <Layer
@@ -190,7 +241,6 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
             </Source>
           )}
 
-          {/* Sensor pressure overlay */}
           {showSensors && sensorGeoJSON && (
             <Source id="sensor-points" type="geojson" data={sensorGeoJSON}>
               <Layer
@@ -207,7 +257,6 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
             </Source>
           )}
 
-          {/* Infrastructure assets for selected DMA */}
           {assetGeoJSON && (
             <Source id="dma-assets" type="geojson" data={assetGeoJSON}>
               <Layer
@@ -230,62 +279,68 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
             </Source>
           )}
 
-          {/* Customer complaint markers (pulsing) */}
           {showOverlays && complaintGeoJSON && complaintGeoJSON.features?.length > 0 && (
             <Source id="complaint-points" type="geojson" data={complaintGeoJSON}>
               <Layer
-                id="complaint-pulse"
+                id="complaint-ring"
                 type="circle"
                 paint={{
-                  "circle-radius": 12,
-                  "circle-color": "rgba(220, 38, 38, 0.15)",
-                  "circle-stroke-width": 0,
+                  "circle-radius": 16,
+                  "circle-color": "transparent",
+                  "circle-stroke-width": 2,
+                  "circle-stroke-color": "rgba(220, 38, 38, 0.4)",
                 }}
               />
               <Layer
                 id="complaint-dots"
-                type="circle"
+                type="symbol"
+                layout={{
+                  "icon-image": "diamond",
+                  "icon-size": 0.8,
+                  "icon-allow-overlap": true,
+                  "text-field": "!",
+                  "text-size": 11,
+                  "text-font": ["Open Sans Bold"],
+                  "text-allow-overlap": true,
+                }}
                 paint={{
-                  "circle-radius": 5,
-                  "circle-color": "#DC2626",
-                  "circle-stroke-width": 2,
-                  "circle-stroke-color": "#fff",
+                  "text-color": "#fff",
+                  "text-halo-color": "#DC2626",
+                  "text-halo-width": 8,
                 }}
               />
             </Source>
           )}
 
-          {/* Sensitive premises markers */}
           {showOverlays && sensitiveGeoJSON && sensitiveGeoJSON.features?.length > 0 && (
             <Source id="sensitive-points" type="geojson" data={sensitiveGeoJSON}>
               <Layer
-                id="sensitive-dots"
+                id="sensitive-bg"
                 type="circle"
                 paint={{
-                  "circle-radius": 7,
-                  "circle-color": sensitiveColor,
-                  "circle-stroke-width": 2,
-                  "circle-stroke-color": "#fff",
+                  "circle-radius": 11,
+                  "circle-color": "#fff",
+                  "circle-stroke-width": 2.5,
+                  "circle-stroke-color": sensitiveTextColor,
                 }}
               />
               <Layer
-                id="sensitive-labels"
+                id="sensitive-letter"
                 type="symbol"
                 layout={{
-                  "text-field": ["get", "sensitive_type"],
-                  "text-size": 9,
-                  "text-offset": [0, 1.5],
-                  "text-anchor": "top",
+                  "text-field": sensitiveLetter,
+                  "text-size": 12,
+                  "text-font": ["Open Sans Bold"],
+                  "text-allow-overlap": true,
                 }}
                 paint={{
-                  "text-color": "#4B5563",
-                  "text-halo-color": "#fff",
-                  "text-halo-width": 1,
+                  "text-color": sensitiveTextColor,
                 }}
               />
             </Source>
           )}
 
+          {/* DMA hover tooltip — dark style */}
           {hoverInfo && (
             <Popup
               longitude={hoverInfo.lng}
@@ -294,10 +349,57 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
               closeOnClick={false}
               anchor="bottom"
               offset={10}
+              className="map-tooltip-dark"
             >
-              <div className="text-xs">
+              <div className="bg-gray-900 text-white rounded-lg px-3 py-2 text-xs shadow-xl border border-gray-700">
                 <div className="font-semibold">{hoverInfo.dma_name}</div>
                 <div>Status: <strong>{hoverInfo.rag_status}</strong></div>
+              </div>
+            </Popup>
+          )}
+
+          {overlayHover && (
+            <Popup
+              longitude={overlayHover.lng}
+              latitude={overlayHover.lat}
+              closeButton={false}
+              closeOnClick={false}
+              anchor="bottom"
+              offset={14}
+              className="map-tooltip-dark"
+            >
+              <div className="bg-gray-900 text-white rounded-lg px-3 py-2 text-xs shadow-xl border border-gray-700">
+                {overlayHover.layer === "sensor" && (
+                  <div className="space-y-0.5">
+                    <div className="font-semibold">{overlayHover.props.sensor_id}</div>
+                    <div>Type: {overlayHover.props.sensor_type}</div>
+                    <div>DMA: {overlayHover.props.dma_code}</div>
+                    {overlayHover.props.avg_pressure != null && (
+                      <div>Pressure: <strong>{Number(overlayHover.props.avg_pressure).toFixed(1)}m</strong></div>
+                    )}
+                  </div>
+                )}
+                {overlayHover.layer === "complaint" && (
+                  <div className="space-y-0.5">
+                    <div className="font-semibold text-red-300">Customer Complaint</div>
+                    <div>Type: {overlayHover.props.complaint_type}</div>
+                    <div>Property: {overlayHover.props.property_id}</div>
+                    {overlayHover.props.complaint_timestamp && (
+                      <div>Reported: {new Date(overlayHover.props.complaint_timestamp).toLocaleString()}</div>
+                    )}
+                  </div>
+                )}
+                {overlayHover.layer === "sensitive" && (
+                  <div className="space-y-0.5">
+                    <div className="font-semibold" style={{ color: SENSITIVE_CONFIG[overlayHover.props.sensitive_type]?.color }}>
+                      {SENSITIVE_CONFIG[overlayHover.props.sensitive_type]?.label || overlayHover.props.sensitive_type}
+                    </div>
+                    <div>{overlayHover.props.property_id}</div>
+                    {overlayHover.props.height != null && (
+                      <div>Height: {overlayHover.props.height}m</div>
+                    )}
+                  </div>
+                )}
               </div>
             </Popup>
           )}
@@ -310,74 +412,82 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
           </div>
         )}
 
-        {/* Filter bar */}
-        <div className={`absolute ${geoErrorMsg ? "top-16" : "top-3"} left-3 z-10 flex gap-1.5`}>
+        {/* Bottom-center translucent filter bar */}
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 bg-white/90 backdrop-blur-sm rounded-full shadow-lg px-2 py-1.5">
           {filterButtons.map((b) => (
             <button
               key={b.key}
               onClick={() => setFilter(b.key)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium shadow-sm transition-colors ${
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                 filter === b.key
                   ? "bg-water-700 text-white"
-                  : "bg-white text-gray-700 hover:bg-gray-50 border border-gray-200"
+                  : "text-gray-700 hover:bg-gray-100"
               }`}
             >
-              {b.label}
+              {b.label} ({dmaCounts[b.key as keyof typeof dmaCounts]})
             </button>
           ))}
-          <div className="w-px bg-gray-300" />
+          <div className="w-px h-5 bg-gray-300" />
           <button
             onClick={() => setShowSensors((v) => !v)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium shadow-sm transition-colors ${
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
               showSensors
                 ? "bg-emerald-600 text-white"
-                : "bg-white text-gray-700 hover:bg-gray-50 border border-gray-200"
+                : "text-gray-700 hover:bg-gray-100"
             }`}
           >
             Sensors
           </button>
           <button
             onClick={() => setShowOverlays((v) => !v)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium shadow-sm transition-colors ${
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
               showOverlays
                 ? "bg-red-600 text-white"
-                : "bg-white text-gray-700 hover:bg-gray-50 border border-gray-200"
+                : "text-gray-700 hover:bg-gray-100"
             }`}
           >
             Impact
           </button>
         </div>
 
-        {/* Legend (when overlays visible on selected DMA) */}
-        {selectedDMA && showOverlays && (complaintCount > 0 || sensitiveCount > 0) && (
-          <div className="absolute bottom-4 left-3 z-10 bg-white/95 rounded-lg shadow-sm border border-gray-200 px-3 py-2 text-xs space-y-1.5">
-            {complaintCount > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-red-600 inline-block" />
-                <span className="text-gray-700">Complaints ({complaintCount})</span>
-              </div>
-            )}
-            {sensitiveCount > 0 && (
-              <>
-                {Object.entries(SENSITIVE_LABELS).map(([key, label]) => (
-                  <div key={key} className="flex items-center gap-2">
-                    <span
-                      className="w-3 h-3 rounded-full inline-block"
-                      style={{
-                        backgroundColor:
-                          key === "hospital" ? "#DC2626"
-                          : key === "school" ? "#2563EB"
-                          : key === "care_home" ? "#7C3AED"
-                          : "#EA580C",
-                      }}
-                    />
-                    <span className="text-gray-700">{label}</span>
-                  </div>
-                ))}
-              </>
-            )}
+        {/* Bottom-right RAG legend */}
+        <div className="absolute bottom-20 right-3 z-10 bg-white/95 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 px-3 py-2.5 text-xs space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: RAG_FILL.RED.replace("0.35", "0.8") }} />
+            <span className="text-gray-700">RED — Alarmed</span>
           </div>
-        )}
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: RAG_FILL.AMBER.replace("0.3", "0.8") }} />
+            <span className="text-gray-700">AMBER — Changed</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: RAG_FILL.GREEN.replace("0.2", "0.6") }} />
+            <span className="text-gray-700">GREEN — Normal</span>
+          </div>
+          {/* Sensitive + complaint legend when panel open */}
+          {selectedDMA && showOverlays && (complaintCount > 0 || sensitiveCount > 0) && (
+            <>
+              <div className="border-t border-gray-200 my-1" />
+              {complaintCount > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="w-4 h-4 rounded-full bg-red-600 text-white text-[9px] font-bold flex items-center justify-center">!</span>
+                  <span className="text-gray-700">Complaints ({complaintCount})</span>
+                </div>
+              )}
+              {sensitiveCount > 0 && Object.entries(SENSITIVE_CONFIG).map(([key, cfg]) => (
+                <div key={key} className="flex items-center gap-2">
+                  <span
+                    className="w-4 h-4 rounded-full bg-white border-2 text-[9px] font-bold flex items-center justify-center"
+                    style={{ borderColor: cfg.color, color: cfg.color }}
+                  >
+                    {cfg.letter}
+                  </span>
+                  <span className="text-gray-700">{cfg.label}</span>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
       </div>
 
       {/* Side panel */}

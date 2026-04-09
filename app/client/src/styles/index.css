@@ -30,20 +30,38 @@
   .btn-danger {
     @apply px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium text-sm;
   }
+  /* Card elevation system */
+  .card-flat { @apply bg-white rounded-xl p-5; }
   .card {
     @apply bg-white rounded-xl shadow-sm border border-gray-200 p-5;
   }
+  .card-elevated { @apply bg-white rounded-xl shadow-md border border-gray-200 p-5; }
+  .card-critical { @apply bg-red-50 rounded-xl border-2 border-red-200 p-5; }
   .badge {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold;
   }
   .panel-title {
-    @apply text-lg font-semibold text-water-800 mb-3;
+    @apply text-base font-semibold text-water-800 mb-3;
+  }
+  /* KPI display: tabular nums prevent digit jumping */
+  .kpi-display {
+    @apply text-3xl font-bold tracking-tight;
+    font-variant-numeric: tabular-nums;
   }
 }
 
 /* MapLibre overrides */
 .maplibregl-popup-content {
   @apply rounded-lg shadow-lg p-3 text-sm;
+}
+/* Dark tooltip variant for map */
+.map-tooltip-dark .maplibregl-popup-content {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+.map-tooltip-dark .maplibregl-popup-tip {
+  border-top-color: #111827;
 }
 
 /* RAG status colors */

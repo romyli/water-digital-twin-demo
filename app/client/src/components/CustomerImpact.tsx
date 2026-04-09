@@ -22,6 +22,12 @@ function classifyImpact(property: any, simulatedPressurePct: number) {
   return "none";
 }
 
+const PRESETS = [
+  { label: "Current (~50%)", value: 50 },
+  { label: "Full outage (0%)", value: 0 },
+  { label: "Restored (100%)", value: 100 },
+];
+
 export default function CustomerImpact({ dmaCode }: { dmaCode: string }) {
   const [pressurePct, setPressurePct] = useState(50);
 
@@ -55,28 +61,51 @@ export default function CustomerImpact({ dmaCode }: { dmaCode: string }) {
   const { classified, counts } = impactSummary;
   const total = properties.length;
 
+  const HIGH_THRESHOLD = 10;
+
   return (
     <div className="space-y-4">
-      {/* What-if slider */}
+      {/* What-if slider with tick marks and presets */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
         <div className="flex items-center justify-between mb-2">
           <p className="text-xs font-medium text-blue-800">What-if: Simulated pressure level</p>
-          <span className="text-sm font-semibold text-blue-700">{pressurePct}%</span>
+          <span className="text-sm font-semibold text-blue-700 tabular-nums">{pressurePct}%</span>
         </div>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={pressurePct}
-          onChange={(e) => setPressurePct(Number(e.target.value))}
-          className="w-full h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer"
-        />
-        <p className="text-xs text-blue-600 mt-1">
-          Estimated impact — based on elevation and current pressure
-        </p>
+        <div className="relative">
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={pressurePct}
+            onChange={(e) => setPressurePct(Number(e.target.value))}
+            className="w-full h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer"
+          />
+          {/* Tick marks */}
+          <div className="flex justify-between mt-1 px-0.5">
+            {[0, 25, 50, 75, 100].map((v) => (
+              <span key={v} className="text-[9px] text-blue-400 tabular-nums">{v}%</span>
+            ))}
+          </div>
+        </div>
+        {/* Preset buttons */}
+        <div className="flex gap-2 mt-2">
+          {PRESETS.map((p) => (
+            <button
+              key={p.value}
+              onClick={() => setPressurePct(p.value)}
+              className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${
+                pressurePct === p.value
+                  ? "bg-blue-600 text-white"
+                  : "bg-white text-blue-700 border border-blue-200 hover:bg-blue-50"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Impact summary */}
+      {/* Impact summary cards with glow on high impact */}
       <div className="grid grid-cols-4 gap-2 text-center text-xs">
         {([
           { key: "high", label: "High", color: "bg-red-100 text-red-800" },
@@ -84,14 +113,21 @@ export default function CustomerImpact({ dmaCode }: { dmaCode: string }) {
           { key: "low", label: "Low", color: "bg-green-100 text-green-800" },
           { key: "none", label: "None", color: "bg-gray-100 text-gray-600" },
         ] as const).map((cat) => (
-          <div key={cat.key} className={`rounded-lg p-2 ${cat.color}`}>
-            <p className="font-bold text-lg">{counts[cat.key]}</p>
+          <div
+            key={cat.key}
+            className={`rounded-lg p-2 ${cat.color} ${
+              cat.key === "high" && counts.high > HIGH_THRESHOLD
+                ? "ring-2 ring-red-400"
+                : ""
+            }`}
+          >
+            <p className="font-bold text-lg tabular-nums">{counts[cat.key]}</p>
             <p>{cat.label}</p>
           </div>
         ))}
       </div>
 
-      <p className="text-xs text-gray-500 text-center">
+      <p className="text-xs text-gray-500 text-center tabular-nums">
         {total} properties total — {counts.high + counts.medium} impacted at {pressurePct}% pressure
       </p>
 
@@ -106,7 +142,7 @@ export default function CustomerImpact({ dmaCode }: { dmaCode: string }) {
               <span className="font-medium">{p.property_id || `Property ${i + 1}`}</span>
               <span className="text-gray-400 ml-2">{p.property_type || ""}</span>
               {(p.elevation_m ?? p.height) != null && (
-                <span className="text-gray-400 ml-2">
+                <span className="text-gray-400 ml-2 tabular-nums">
                   {Number(p.elevation_m ?? p.height).toFixed(0)}m elev
                 </span>
               )}

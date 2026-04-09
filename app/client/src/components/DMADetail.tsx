@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   fetchDMADetail,
@@ -15,6 +15,80 @@ import EmptyState from "./common/EmptyState";
 import AssetDetail from "./AssetDetail";
 import CustomerImpact from "./CustomerImpact";
 
+/* ---------- Root Cause Chain Visualization ---------- */
+function RootCauseChain({
+  pumpAssets,
+  trunkMains,
+  dmaCode,
+  downstreamCount,
+}: {
+  pumpAssets: any[];
+  trunkMains: any[];
+  dmaCode: string;
+  downstreamCount?: number;
+}) {
+  const nodes = [
+    ...(pumpAssets.length > 0
+      ? [{ id: pumpAssets[0].asset_id, type: "Pump Station", rag: pumpAssets[0].rag_status || "RED" }]
+      : []),
+    ...(trunkMains.length > 0
+      ? [{ id: trunkMains[0].asset_id, type: "Trunk Main", rag: trunkMains[0].rag_status || "AMBER" }]
+      : []),
+    { id: dmaCode, type: "DMA", rag: "RED" },
+    ...(downstreamCount != null && downstreamCount > 0
+      ? [{ id: `${downstreamCount} downstream`, type: "Downstream DMAs", rag: "AMBER" }]
+      : []),
+  ];
+
+  const ragBg: Record<string, string> = {
+    RED: "bg-red-100 border-red-400 text-red-800",
+    AMBER: "bg-amber-100 border-amber-400 text-amber-800",
+    GREEN: "bg-green-100 border-green-400 text-green-800",
+  };
+
+  return (
+    <div className="flex items-center gap-0 overflow-x-auto py-2">
+      {nodes.map((node, i) => (
+        <div key={i} className="flex items-center">
+          <div
+            className={`rounded-lg border-2 px-3 py-2 text-center min-w-[90px] ${
+              ragBg[node.rag?.toUpperCase()] || ragBg.GREEN
+            }`}
+          >
+            <p className="text-xs font-bold">{node.id}</p>
+            <p className="text-[10px] opacity-70">{node.type}</p>
+          </div>
+          {i < nodes.length - 1 && (
+            <svg className="w-6 h-4 text-gray-400 flex-shrink-0" viewBox="0 0 24 16" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="M2 8h16M14 3l5 5-5 5" />
+            </svg>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------- Pressure Mini Bar ---------- */
+function PressureBar({ value, max = 30 }: { value: number | null; max?: number }) {
+  if (value == null) return <span className="text-xs text-gray-400">—</span>;
+  const pct = Math.min(100, Math.max(0, (value / max) * 100));
+  const isLow = value < 10;
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full ${isLow ? "bg-red-500" : "bg-green-500"}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className={`text-xs font-medium tabular-nums ${isLow ? "text-red-600" : "text-gray-700"}`}>
+        {Number(value).toFixed(1)}m
+      </span>
+    </div>
+  );
+}
+
 export default function DMADetail({
   dmaCode,
   activeIncident,
@@ -24,6 +98,13 @@ export default function DMADetail({
 }) {
   const [activeTab, setActiveTab] = useState("summary");
   const [selectedSensor, setSelectedSensor] = useState<string | null>(null);
+
+  // Listen for Escape to close sensor detail
+  useEffect(() => {
+    const handler = () => setSelectedSensor(null);
+    window.addEventListener("app:escape", handler);
+    return () => window.removeEventListener("app:escape", handler);
+  }, []);
 
   const { data: detail, isLoading: loadingDetail } = useQuery({
     queryKey: ["dmaDetail", dmaCode],
@@ -73,19 +154,7 @@ export default function DMADetail({
 
   const pumpAssets = assets.filter((a: any) => a.asset_type === "pump_station");
   const trunkMains = assets.filter((a: any) => a.asset_type === "trunk_main");
-  const rootCauseParts: string[] = [];
-  if (pumpAssets.length > 0 && trunkMains.length > 0) {
-    rootCauseParts.push(
-      `Pump station ${pumpAssets[0].asset_id} \u2192 Trunk Main ${trunkMains[0].asset_id} \u2192 ${dmaCode}`
-    );
-    if (detail?.downstream_dma_count != null) {
-      rootCauseParts.push(`Downstream: ${detail.downstream_dma_count} DMAs`);
-    }
-    if (detail?.total_properties != null) {
-      rootCauseParts.push(`~${detail.total_properties} properties`);
-    }
-  }
-  const rootCauseText = rootCauseParts.length > 0 ? `Root Cause: ${rootCauseParts.join(". ")}` : null;
+  const hasRootCause = pumpAssets.length > 0 || trunkMains.length > 0;
 
   if (loadingDetail) return <LoadingSpinner message="Loading DMA details..." />;
 
@@ -122,14 +191,15 @@ export default function DMADetail({
         <TimelineStrip history={ragHistory} />
       </div>
 
-      <div className="flex gap-1 border-b border-gray-100 pb-1">
+      {/* Segmented Control Tabs */}
+      <div className="bg-gray-100 rounded-lg p-0.5 flex gap-0.5">
         {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setActiveTab(t.key)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-t-lg transition-colors ${
+            className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
               activeTab === t.key
-                ? "bg-water-50 text-water-700 border-b-2 border-water-600"
+                ? "bg-white shadow-sm text-gray-900"
                 : "text-gray-500 hover:text-gray-700"
             }`}
           >
@@ -140,33 +210,54 @@ export default function DMADetail({
 
       {activeTab === "summary" && (
         <div className="space-y-4">
+          {/* Colored stat cards */}
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-gray-500 text-xs">Avg Pressure</p>
-              <p className="font-semibold text-lg">
-                {detail?.avg_pressure != null ? `${Number(detail.avg_pressure).toFixed(1)} m` : "\u2014"}
-              </p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-gray-500 text-xs">Avg Flow</p>
-              <p className="font-semibold text-lg">
-                {detail?.avg_flow != null ? `${Number(detail.avg_flow).toFixed(1)} l/s` : "\u2014"}
-              </p>
-            </div>
+            {(() => {
+              const avgP = detail?.avg_pressure != null ? Number(detail.avg_pressure) : null;
+              const avgF = detail?.avg_flow != null ? Number(detail.avg_flow) : null;
+              const pLow = avgP != null && avgP < 10;
+              return (
+                <>
+                  <div className={`rounded-lg p-3 ${pLow ? "bg-red-50 border border-red-200" : "bg-gray-50"}`}>
+                    <p className="text-gray-500 text-xs">Avg Pressure</p>
+                    <p className={`font-semibold text-lg tabular-nums ${pLow ? "text-red-600" : ""}`}>
+                      {avgP != null ? `${avgP.toFixed(1)} m` : "—"}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <p className="text-gray-500 text-xs">Avg Flow</p>
+                    <p className="font-semibold text-lg tabular-nums">
+                      {avgF != null ? `${avgF.toFixed(1)} l/s` : "—"}
+                    </p>
+                  </div>
+                </>
+              );
+            })()}
             <div className="bg-gray-50 rounded-lg p-3">
               <p className="text-gray-500 text-xs">Sensors</p>
-              <p className="font-semibold text-lg">{detail?.sensor_count ?? sensors.length}</p>
+              <p className="font-semibold text-lg tabular-nums">{detail?.sensor_count ?? sensors.length}</p>
             </div>
             <div className="bg-gray-50 rounded-lg p-3">
               <p className="text-gray-500 text-xs">Properties</p>
-              <p className="font-semibold text-lg">{detail?.property_count ?? "\u2014"}</p>
+              <p className="font-semibold text-lg tabular-nums">{detail?.property_count ?? "—"}</p>
             </div>
           </div>
 
-          {rootCauseText && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
-              <p className="font-medium mb-1">Upstream Root Cause</p>
-              <p>{rootCauseText}</p>
+          {/* Root Cause Chain */}
+          {hasRootCause && (
+            <div>
+              <p className="text-xs font-medium text-gray-500 mb-2">Upstream Root Cause</p>
+              <RootCauseChain
+                pumpAssets={pumpAssets}
+                trunkMains={trunkMains}
+                dmaCode={dmaCode}
+                downstreamCount={detail?.downstream_dma_count}
+              />
+              {detail?.total_properties != null && (
+                <p className="text-xs text-gray-400 mt-1">
+                  ~{detail.total_properties} properties affected
+                </p>
+              )}
             </div>
           )}
 
@@ -181,7 +272,7 @@ export default function DMADetail({
                       status={
                         (r.level_pct ?? 50) < 30 ? "RED" : (r.level_pct ?? 50) < 60 ? "AMBER" : "GREEN"
                       }
-                      label={`${r.level_pct ?? "\u2014"}%`}
+                      label={`${r.level_pct ?? "—"}%`}
                     />
                   </div>
                   {r.est_supply_hours != null && (
@@ -223,7 +314,6 @@ export default function DMADetail({
           ) : (
             sortedSensors.map((s: any) => {
               const pressure = s.latest_pressure ?? s.avg_pressure;
-              const isLow = pressure != null && pressure < 10;
               return (
                 <button
                   key={s.sensor_id}
@@ -231,13 +321,12 @@ export default function DMADetail({
                   className="w-full text-left bg-gray-50 hover:bg-gray-100 rounded-lg px-3 py-2.5 text-sm transition-colors"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-medium">{s.sensor_id}</span>
-                    <RAGBadge
-                      status={isLow ? "RED" : "GREEN"}
-                      label={pressure != null ? `${Number(pressure).toFixed(1)} m` : "\u2014"}
-                    />
+                    <div>
+                      <span className="font-medium">{s.sensor_id}</span>
+                      {s.sensor_type && <span className="text-xs text-gray-400 ml-2">{s.sensor_type}</span>}
+                    </div>
+                    <PressureBar value={pressure != null ? Number(pressure) : null} />
                   </div>
-                  {s.sensor_type && <p className="text-xs text-gray-500 mt-0.5">{s.sensor_type}</p>}
                 </button>
               );
             })
@@ -255,7 +344,7 @@ export default function DMADetail({
                 <div className="flex justify-between items-start">
                   <span className="font-medium">{c.complaint_type || "Complaint"}</span>
                   <span className="text-xs text-gray-400">
-                    {c.reported_at ? new Date(c.reported_at).toLocaleString() : "\u2014"}
+                    {c.reported_at ? new Date(c.reported_at).toLocaleString() : "—"}
                   </span>
                 </div>
                 <p className="text-gray-600 text-xs mt-1">{c.description || "No description"}</p>

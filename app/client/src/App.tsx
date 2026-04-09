@@ -1,6 +1,9 @@
-import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
+import { useState, useEffect, useCallback } from "react";
+import { BrowserRouter, Routes, Route, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { fetchActiveIncidents } from "./api";
+import { fetchActiveIncidents, fetchHealth } from "./api";
+import { useCountdown } from "./hooks/useCountdown";
+import RAGBadge from "./components/common/RAGBadge";
 import ShiftHandover from "./components/ShiftHandover";
 import MapView from "./components/MapView";
 import AlarmLog from "./components/AlarmLog";
@@ -11,7 +14,7 @@ function NetworkNormal() {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
       <div className="w-20 h-20 rounded-full bg-rag-green/20 flex items-center justify-center mb-6">
-        <div className="w-12 h-12 rounded-full bg-rag-green animate-pulse" />
+        <div className="w-12 h-12 rounded-full bg-rag-green" />
       </div>
       <h2 className="text-2xl font-bold text-gray-800 mb-2">Network Normal</h2>
       <p className="text-gray-500 max-w-md">
@@ -21,23 +24,98 @@ function NetworkNormal() {
   );
 }
 
+/* ---------- Live clock (HH:mm:ss) ---------- */
+function LiveClock() {
+  const [time, setTime] = useState(() => new Date().toLocaleTimeString("en-GB", { hour12: false }));
+  useEffect(() => {
+    const id = setInterval(
+      () => setTime(new Date().toLocaleTimeString("en-GB", { hour12: false })),
+      1000
+    );
+    return () => clearInterval(id);
+  }, []);
+  return <span className="font-mono text-sm tabular-nums text-white/80">{time}</span>;
+}
+
+/* ---------- Connection status ---------- */
+function ConnectionStatus() {
+  const { isError, dataUpdatedAt } = useQuery({
+    queryKey: ["health"],
+    queryFn: fetchHealth,
+    refetchInterval: 15_000,
+    retry: 1,
+  });
+  const stale = dataUpdatedAt > 0 && Date.now() - dataUpdatedAt > 60_000;
+  if (isError || stale) {
+    return (
+      <span className="flex items-center gap-1.5 text-xs text-red-300">
+        <span className="w-2 h-2 rounded-full bg-red-400" />
+        DISCONNECTED
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1.5 text-xs text-green-300">
+      <span className="w-2 h-2 rounded-full bg-green-400" />
+      LIVE
+    </span>
+  );
+}
+
+/* ---------- Incident Banner ---------- */
+function IncidentBanner({ incident }: { incident: any }) {
+  const { elapsed } = useCountdown(incident?.created_at || incident?.start_timestamp);
+  const dmaCount = incident?.affected_dma_count ?? incident?.dma_count ?? "—";
+  const propCount = incident?.affected_properties ?? incident?.property_count ?? "—";
+  const sensitiveCount = incident?.sensitive_site_count ?? "—";
+
+  return (
+    <div className="bg-red-600 text-white px-4 py-2">
+      <div className="max-w-screen-2xl mx-auto">
+        {/* Top row */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="inline-block w-2 h-2 rounded-full bg-white animate-pulse" />
+            <span className="font-semibold text-sm">
+              {incident.incident_id}
+            </span>
+            <RAGBadge status="RED" label={incident.incident_type || "Active"} className="!bg-red-800/50 !text-white" />
+            <span className="text-red-100 text-sm">
+              {incident.description || ""}
+            </span>
+          </div>
+          <span className="font-mono font-bold text-lg tabular-nums">{elapsed}</span>
+        </div>
+        {/* Bottom row — KPI strip */}
+        <div className="flex items-center gap-6 mt-1 text-xs text-red-100">
+          <span>{dmaCount} DMAs</span>
+          <span>{propCount} properties</span>
+          <span>{sensitiveCount} sensitive sites</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Nav Bar ---------- */
 function NavBar({ hasIncident }: { hasIncident: boolean }) {
   const linkClass = ({ isActive }: { isActive: boolean }) =>
-    `px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+    `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
       isActive
-        ? "bg-water-700 text-white shadow-sm"
-        : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+        ? "bg-white/15 text-white"
+        : "text-white/70 hover:text-white hover:bg-white/10"
     }`;
 
   return (
-    <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
-      <div className="max-w-screen-2xl mx-auto px-4 h-14 flex items-center justify-between">
+    <header className="bg-water-900 sticky top-0 z-50">
+      <div className="max-w-screen-2xl mx-auto px-4 h-12 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-water-700 flex items-center justify-center">
-            <span className="text-white font-bold text-sm">W</span>
-          </div>
-          <span className="font-semibold text-water-800 text-lg">Water Utilities</span>
-          <span className="text-xs text-gray-400 ml-1">Digital Twin</span>
+          {/* Water droplet icon */}
+          <svg className="w-6 h-6 text-blue-400" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2c0 0-7 8.2-7 13a7 7 0 0 0 14 0C19 10.2 12 2 12 2z" />
+          </svg>
+          <span className="font-semibold text-white text-sm">Water Utilities</span>
+          <span className="text-xs text-white/40">Digital Twin</span>
         </div>
         <nav className="flex items-center gap-1">
           <NavLink to="/" end className={linkClass}>
@@ -58,11 +136,57 @@ function NavBar({ hasIncident }: { hasIncident: boolean }) {
             Ask Genie
           </NavLink>
         </nav>
+        <div className="flex items-center gap-4">
+          <ConnectionStatus />
+          <LiveClock />
+        </div>
       </div>
     </header>
   );
 }
 
+/* ---------- Keyboard shortcuts ---------- */
+function KeyboardShortcuts() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const handler = useCallback(
+    (e: KeyboardEvent) => {
+      // Don't fire when typing in inputs
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      )
+        return;
+
+      const routes = ["/", "/map", "/incidents", "/regulatory", "/genie"];
+      const key = e.key;
+      if (key >= "1" && key <= "5") {
+        e.preventDefault();
+        const idx = Number(key) - 1;
+        if (routes[idx] && routes[idx] !== location.pathname) {
+          navigate(routes[idx]);
+        }
+      }
+      if (key === "Escape") {
+        // Escape is handled by individual components (e.g., close side panel)
+        // Dispatch a custom event so components can listen
+        window.dispatchEvent(new CustomEvent("app:escape"));
+      }
+    },
+    [navigate, location.pathname]
+  );
+
+  useEffect(() => {
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handler]);
+
+  return null;
+}
+
+/* ---------- App ---------- */
 export default function App() {
   const { data } = useQuery({
     queryKey: ["activeIncidents"],
@@ -76,21 +200,10 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <KeyboardShortcuts />
       <div className="min-h-screen flex flex-col">
         <NavBar hasIncident={hasIncident} />
-        {hasIncident && (
-          <div className="bg-red-50 border-b border-red-200 px-4 py-2">
-            <div className="max-w-screen-2xl mx-auto flex items-center gap-2 text-sm">
-              <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              <span className="font-medium text-red-800">
-                Active Incident: {activeIncident?.incident_id}
-              </span>
-              <span className="text-red-600">
-                — {activeIncident?.description || activeIncident?.incident_type}
-              </span>
-            </div>
-          </div>
-        )}
+        {hasIncident && <IncidentBanner incident={activeIncident} />}
         <main className="flex-1">
           <Routes>
             <Route
