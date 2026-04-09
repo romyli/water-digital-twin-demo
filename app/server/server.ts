@@ -60,7 +60,7 @@ async function setupRoutes(appkit: any) {
 
   /** Current time in demo-world (for server-side calculations and time-windowed queries) */
   function demoNow(): number {
-    return demoNow();
+    return demoScenarioActive && demoTimeOffset ? Date.now() - demoTimeOffset : Date.now();
   }
 
   // Communications: Delta-synced seed (communications_log) + app writes (app_communications_log)
@@ -773,7 +773,7 @@ async function setupRoutes(appkit: any) {
       await appkit.lakebase.query(
         `INSERT INTO app_communications_log (incident_id, channel, recipient, message, sent_by, sent_at)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [incidentId, channel, recipient, message, sent_by, new Date().toISOString()]
+        [incidentId, channel, recipient, message, sent_by, new Date(demoNow()).toISOString()]
       );
       res.json({ status: "created" });
     } catch (e: any) {
@@ -790,7 +790,7 @@ async function setupRoutes(appkit: any) {
         await appkit.lakebase.query(
           `INSERT INTO app_playbook_action_log (incident_id, action_id, decision, note, decided_at)
            VALUES ($1, $2, $3, $4, $5)`,
-          [incidentId, action.action_id, action.decision, action.note ?? null, new Date().toISOString()]
+          [incidentId, action.action_id, action.decision, action.note ?? null, new Date(demoNow()).toISOString()]
         );
       }
       res.json({ status: "saved", count: actions.length });
@@ -807,7 +807,7 @@ async function setupRoutes(appkit: any) {
       await appkit.lakebase.query(
         `INSERT INTO app_comms_requests (incident_id, channel, message_template, target_audience, created_at)
          VALUES ($1, $2, $3, $4, $5)`,
-        [incidentId, channel, message_template, target_audience, new Date().toISOString()]
+        [incidentId, channel, message_template, target_audience, new Date(demoNow()).toISOString()]
       );
       res.json({ status: "created" });
     } catch (e: any) {
