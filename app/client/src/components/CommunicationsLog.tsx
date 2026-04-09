@@ -42,8 +42,9 @@ export default function CommunicationsLog({
   const { data, isLoading } = useQuery({
     queryKey: ["comms", incidentId],
     queryFn: () => fetchComms(incidentId!),
-    enabled: !!incidentId && !initialComms,
-    initialData: initialComms ? { communications: initialComms } : undefined,
+    enabled: !!incidentId,
+    placeholderData: initialComms ? { communications: initialComms } : undefined,
+    refetchInterval: 10_000,
   });
 
   // Reverse so oldest is at top, most recent at bottom (chat-style chronological)
