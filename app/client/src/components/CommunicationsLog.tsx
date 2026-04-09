@@ -111,7 +111,10 @@ export default function CommunicationsLog({
                 {/* System message */}
                 {system ? (
                   <div className="text-center">
-                    <p className="text-gray-400 italic text-xs py-1">{c.summary}</p>
+                    <p className="text-gray-400 italic text-xs py-1">
+                      {c.summary}
+                      {ts && <span className="ml-2 text-[10px] not-italic tabular-nums">{format(ts, "HH:mm")}</span>}
+                    </p>
                   </div>
                 ) : (
                   /* Chat bubble */

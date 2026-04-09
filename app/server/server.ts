@@ -99,7 +99,7 @@ async function setupRoutes(appkit: any) {
 
   // ---- Demo Scenario Control --------------------------------------------
   app.get("/api/demo/status", (_req: any, res: any) => {
-    res.json({ scenarioActive: demoScenarioActive, activatedAt: demoActivatedAt?.toISOString() ?? null });
+    res.json({ scenarioActive: demoScenarioActive, activatedAt: demoActivatedAt?.toISOString() ?? null, timeOffset: demoTimeOffset });
   });
 
   app.post("/api/demo/activate", async (_req: any, res: any) => {

@@ -26,15 +26,16 @@ function NetworkNormal() {
 }
 
 /* ---------- Live clock (HH:mm:ss) ---------- */
-function LiveClock() {
-  const [time, setTime] = useState(() => new Date().toLocaleTimeString("en-GB", { hour12: false }));
+function LiveClock({ timeOffset }: { timeOffset: number }) {
+  const getTime = () => {
+    const now = timeOffset ? new Date(Date.now() - timeOffset) : new Date();
+    return now.toLocaleTimeString("en-GB", { hour12: false });
+  };
+  const [time, setTime] = useState(getTime);
   useEffect(() => {
-    const id = setInterval(
-      () => setTime(new Date().toLocaleTimeString("en-GB", { hour12: false })),
-      1000
-    );
+    const id = setInterval(() => setTime(getTime()), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [timeOffset]);
   return <span className="font-mono text-sm tabular-nums text-white/80">{time}</span>;
 }
 
@@ -95,7 +96,7 @@ function IncidentBanner({ incident }: { incident: any }) {
 }
 
 /* ---------- Nav Bar ---------- */
-function NavBar({ hasIncident }: { hasIncident: boolean }) {
+function NavBar({ hasIncident, timeOffset }: { hasIncident: boolean; timeOffset: number }) {
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
       isActive
@@ -135,7 +136,7 @@ function NavBar({ hasIncident }: { hasIncident: boolean }) {
         </nav>
         <div className="flex items-center gap-4">
           <ConnectionStatus />
-          <LiveClock />
+          <LiveClock timeOffset={timeOffset} />
         </div>
       </div>
     </header>
@@ -288,6 +289,14 @@ export default function App() {
     refetchInterval: 60_000,
   });
 
+  const { data: demoStatus } = useQuery({
+    queryKey: ["demoStatus"],
+    queryFn: fetchDemoStatus,
+    staleTime: 30_000,
+    retry: 1,
+  });
+  const timeOffset = demoStatus?.scenarioActive ? (demoStatus.timeOffset ?? 0) : 0;
+
   const incidents = data?.incidents || [];
   const activeIncident = incidents[0] || null;
   const hasIncident = incidents.length > 0;
@@ -297,7 +306,7 @@ export default function App() {
       <KeyboardShortcuts />
       <DemoControl />
       <div className="h-screen flex flex-col overflow-hidden">
-        <NavBar hasIncident={hasIncident} />
+        <NavBar hasIncident={hasIncident} timeOffset={timeOffset} />
         {hasIncident && <IncidentBanner incident={activeIncident} />}
         <main className="flex-1 min-h-0 overflow-auto">
           <Routes>
