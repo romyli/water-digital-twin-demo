@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { BrowserRouter, Routes, Route, NavLink, useNavigate, useLocation } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { fetchActiveIncidents, fetchHealth } from "./api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { fetchActiveIncidents, fetchHealth, fetchDemoStatus, activateDemo, resetDemo } from "./api";
 import { useCountdown } from "./hooks/useCountdown";
 import { humanize } from "./utils/format";
 import RAGBadge from "./components/common/RAGBadge";
@@ -171,6 +171,11 @@ function KeyboardShortcuts() {
         // Dispatch a custom event so components can listen
         window.dispatchEvent(new CustomEvent("app:escape"));
       }
+      // Ctrl+Shift+D / Cmd+Shift+D → toggle demo scenario
+      if (key === "D" && e.shiftKey && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("app:demo-toggle"));
+      }
     },
     [navigate, location.pathname]
   );
@@ -181,6 +186,97 @@ function KeyboardShortcuts() {
   }, [handler]);
 
   return null;
+}
+
+/* ---------- Demo Control ---------- */
+function DemoControl() {
+  const queryClient = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const { data: demoStatus } = useQuery({
+    queryKey: ["demoStatus"],
+    queryFn: fetchDemoStatus,
+    staleTime: 30_000,
+  });
+
+  const isActive = demoStatus?.scenarioActive ?? false;
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const activateMutation = useMutation({
+    mutationFn: activateDemo,
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      showToast("Incident scenario activated");
+    },
+  });
+
+  const resetMutation = useMutation({
+    mutationFn: resetDemo,
+    onSuccess: () => {
+      setConfirming(false);
+      queryClient.invalidateQueries();
+      showToast("Demo reset to normal");
+    },
+  });
+
+  const handleToggle = useCallback(() => {
+    if (!isActive) {
+      activateMutation.mutate();
+    } else if (!confirming) {
+      setConfirming(true);
+      setTimeout(() => setConfirming(false), 3000);
+    } else {
+      resetMutation.mutate();
+    }
+  }, [isActive, confirming, activateMutation, resetMutation]);
+
+  // Listen for keyboard shortcut
+  useEffect(() => {
+    const onToggle = () => handleToggle();
+    window.addEventListener("app:demo-toggle", onToggle);
+    return () => window.removeEventListener("app:demo-toggle", onToggle);
+  }, [handleToggle]);
+
+  const busy = activateMutation.isPending || resetMutation.isPending;
+
+  return (
+    <div className="fixed bottom-4 right-4 z-50">
+      {toast && (
+        <div className="mb-2 px-3 py-1.5 bg-gray-900/90 text-white text-xs rounded-lg shadow-lg text-center">
+          {toast}
+        </div>
+      )}
+      <div className="bg-gray-900/80 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-3 shadow-2xl min-w-[180px]">
+        <div className="flex items-center gap-2 mb-2">
+          <span className={`w-2.5 h-2.5 rounded-full ${isActive ? "bg-red-500 animate-pulse" : "bg-green-500"}`} />
+          <span className="text-xs font-medium text-white/80">
+            {isActive ? "Incident Active" : "Network Normal"}
+          </span>
+        </div>
+        <button
+          onClick={handleToggle}
+          disabled={busy}
+          className={`w-full px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+            busy
+              ? "bg-gray-600 text-gray-400 cursor-wait"
+              : confirming
+              ? "bg-yellow-600 hover:bg-yellow-500 text-white"
+              : isActive
+              ? "bg-gray-700 hover:bg-gray-600 text-white"
+              : "bg-red-600 hover:bg-red-500 text-white"
+          }`}
+        >
+          {busy ? "..." : confirming ? "Confirm Reset?" : isActive ? "Reset Demo" : "Trigger Incident"}
+        </button>
+        <div className="mt-1.5 text-[10px] text-white/30 text-center">Ctrl+Shift+D</div>
+      </div>
+    </div>
+  );
 }
 
 /* ---------- App ---------- */
@@ -198,6 +294,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <KeyboardShortcuts />
+      <DemoControl />
       <div className="h-screen flex flex-col overflow-hidden">
         <NavBar hasIncident={hasIncident} />
         {hasIncident && <IncidentBanner incident={activeIncident} />}

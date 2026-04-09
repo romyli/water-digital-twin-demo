@@ -25,6 +25,59 @@ async function setupRoutes(appkit: any) {
     return rows[0] ?? null;
   }
 
+  // --- Regulatory Rules (loaded once at startup, fallback to defaults) ------
+  const DEFAULT_RULES: Record<string, number> = {
+    OFWAT_PENALTY_RATE: 580, OFWAT_GRACE_PERIOD: 3,
+    DWI_VERBAL_DEADLINE: 1, DWI_WRITTEN_DEADLINE: 24,
+    OFWAT_ESCALATION_THRESHOLD: 12,
+    PRESSURE_RED_THRESHOLD: 15, PRESSURE_AMBER_THRESHOLD: 25,
+    DEFAULT_BASE_PRESSURE: 25,
+    IMPACT_HIGH_THRESHOLD: 0, IMPACT_MEDIUM_THRESHOLD: 5, IMPACT_LOW_THRESHOLD: 10,
+    CMEX_GREEN_THRESHOLD: 70, CMEX_AMBER_THRESHOLD: 40,
+  };
+
+  let rulesMap: Record<string, { value_numeric: number; value_text: string | null; unit: string; rule_name: string }> = {};
+  try {
+    const rulesRows = await query(
+      "SELECT rule_id, rule_name, value_numeric, value_text, unit FROM dim_regulatory_rules WHERE effective_to IS NULL"
+    );
+    for (const r of rulesRows) {
+      rulesMap[r.rule_id] = { value_numeric: Number(r.value_numeric), value_text: r.value_text, unit: r.unit, rule_name: r.rule_name };
+    }
+    console.log(`[rules] Loaded ${Object.keys(rulesMap).length} regulatory rules from dim_regulatory_rules`);
+  } catch (err: any) {
+    console.warn("[rules] dim_regulatory_rules not available, using defaults:", err.message);
+  }
+
+  function rule(id: string): number {
+    return rulesMap[id]?.value_numeric ?? DEFAULT_RULES[id] ?? 0;
+  }
+
+  // --- Demo scenario state (in-memory) ------------------------------------
+  let demoScenarioActive = false;
+  let demoActivatedAt: Date | null = null;
+  let demoTimeOffset = 0; // ms to add to all timestamps when scenario is active
+
+  function shiftTime(ts: string | Date | null | undefined): string | null {
+    if (!ts || !demoTimeOffset) return (ts as string) ?? null;
+    const d = new Date(typeof ts === "string" ? ts : (ts as Date).toISOString());
+    return new Date(d.getTime() + demoTimeOffset).toISOString();
+  }
+
+  function shiftRow(row: any, ...fields: string[]): any {
+    if (!demoScenarioActive || !demoTimeOffset) return row;
+    const copy = { ...row };
+    for (const f of fields) {
+      if (copy[f] != null) copy[f] = shiftTime(copy[f]);
+    }
+    return copy;
+  }
+
+  function shiftRows(rows: any[], ...fields: string[]): any[] {
+    if (!demoScenarioActive || !demoTimeOffset) return rows;
+    return rows.map((r) => shiftRow(r, ...fields));
+  }
+
   // Communications: Delta-synced seed (communications_log) + app writes (app_communications_log)
   // Actual columns: comms_id, incident_id, comms_timestamp, recipient_role, recipient_name, channel, direction, summary, status
   const COMMS_UNION = `(
@@ -39,26 +92,72 @@ async function setupRoutes(appkit: any) {
     res.json({ status: "ok", service: "water-digital-twin", company: "Water Utilities" });
   });
 
+  // ---- Regulatory Rules Config ------------------------------------------
+  app.get("/api/config/rules", (_req: any, res: any) => {
+    res.json({ rules: rulesMap });
+  });
+
+  // ---- Demo Scenario Control --------------------------------------------
+  app.get("/api/demo/status", (_req: any, res: any) => {
+    res.json({ scenarioActive: demoScenarioActive, activatedAt: demoActivatedAt?.toISOString() ?? null });
+  });
+
+  app.post("/api/demo/activate", async (_req: any, res: any) => {
+    try {
+      const row = await queryOne(
+        "SELECT start_timestamp FROM dim_incidents WHERE status = 'active' ORDER BY created_at ASC LIMIT 1"
+      );
+      if (!row) return res.status(400).json({ error: "No active incident in dataset" });
+      const incidentStart = new Date(row.start_timestamp);
+      demoActivatedAt = new Date();
+      demoTimeOffset = demoActivatedAt.getTime() - incidentStart.getTime();
+      demoScenarioActive = true;
+      console.log(`[demo] Scenario activated. Offset: ${Math.round(demoTimeOffset / 60_000)} min`);
+      res.json({ scenarioActive: true, activatedAt: demoActivatedAt.toISOString() });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/demo/reset", async (_req: any, res: any) => {
+    try {
+      demoScenarioActive = false;
+      demoActivatedAt = null;
+      demoTimeOffset = 0;
+      // Clear app-written data for a fresh demo run
+      await Promise.all([
+        appkit.lakebase.query("TRUNCATE app_communications_log"),
+        appkit.lakebase.query("TRUNCATE app_playbook_action_log"),
+        appkit.lakebase.query("TRUNCATE app_comms_requests"),
+      ]);
+      console.log("[demo] Scenario reset. App write-back tables cleared.");
+      res.json({ scenarioActive: false, activatedAt: null });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ---- Incidents --------------------------------------------------------
   app.get("/api/incidents/active", async (_req: any, res: any) => {
+    if (!demoScenarioActive) return res.json({ incidents: [] });
     try {
       const [rows, dmaSummary] = await Promise.all([
         query("SELECT * FROM dim_incidents WHERE status = 'active' ORDER BY created_at DESC"),
         queryOne(
           `SELECT COUNT(DISTINCT s.dma_code) AS affected_dma_count,
-                  COALESCE(SUM(sm.property_count), 0) AS total_properties,
+                  COALESCE(SUM(sm.total_properties), SUM(sm.property_count), 0) AS total_properties,
                   COALESCE(SUM(sm.sensitive_premises_count), 0) AS sensitive_site_count
            FROM dma_status s
-           LEFT JOIN dma_summary sm ON s.dma_code = sm.dma_code
+           LEFT JOIN vw_dma_summary sm ON s.dma_code = sm.dma_code
            WHERE s.rag_status IN ('RED', 'AMBER')`
         ),
       ]);
-      const enriched = rows.map((inc: any) => ({
+      const enriched = rows.map((inc: any) => shiftRow({
         ...inc,
         affected_dma_count: Number(dmaSummary?.affected_dma_count) || 0,
         affected_properties: Number(dmaSummary?.total_properties) || 0,
         sensitive_site_count: Number(dmaSummary?.sensitive_site_count) || 0,
-      }));
+      }, "start_timestamp", "created_at"));
       res.json({ incidents: enriched });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -76,13 +175,18 @@ async function setupRoutes(appkit: any) {
         query("SELECT * FROM incident_events WHERE incident_id = $1 ORDER BY event_timestamp DESC", [id]),
         query(`SELECT * FROM ${COMMS_UNION} WHERE incident_id = $1 ORDER BY comms_timestamp DESC`, [id]),
       ]);
-      res.json({ incident, events, communications: comms });
+      res.json({
+        incident: shiftRow(incident, "start_timestamp", "created_at"),
+        events: shiftRows(events, "event_timestamp"),
+        communications: shiftRows(comms, "comms_timestamp"),
+      });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
   });
 
   app.get("/api/incidents/events/recent", async (req: any, res: any) => {
+    if (!demoScenarioActive) return res.json({ events: [] });
     try {
       // Try real-time window first; fall back to most recent events if demo data is static
       const hours = Math.min(168, Math.max(1, Number(req.query.hours) || 24));
@@ -97,7 +201,7 @@ async function setupRoutes(appkit: any) {
           "SELECT * FROM incident_events ORDER BY event_timestamp DESC LIMIT 200"
         );
       }
-      res.json({ events: rows });
+      res.json({ events: shiftRows(rows, "event_timestamp") });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -109,7 +213,7 @@ async function setupRoutes(appkit: any) {
         "SELECT * FROM incident_events WHERE incident_id = $1 ORDER BY event_timestamp DESC",
         [req.params.id]
       );
-      res.json({ events: rows });
+      res.json({ events: shiftRows(rows, "event_timestamp") });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -127,27 +231,46 @@ async function setupRoutes(appkit: any) {
         query(`SELECT * FROM ${COMMS_UNION} WHERE incident_id = $1 ORDER BY comms_timestamp DESC`, [id]),
         queryOne(
           `SELECT COUNT(DISTINCT s.dma_code) AS affected_dma_count,
-                  COALESCE(SUM(sm.property_count), 0) AS total_properties,
+                  COALESCE(SUM(sm.total_properties), SUM(sm.property_count), 0) AS total_properties,
                   COALESCE(SUM(sm.sensitive_premises_count), 0) AS sensitive_site_count
            FROM dma_status s
-           LEFT JOIN dma_summary sm ON s.dma_code = sm.dma_code
+           LEFT JOIN vw_dma_summary sm ON s.dma_code = sm.dma_code
            WHERE s.rag_status IN ('RED', 'AMBER')`
         ),
       ]);
+
+      // Outstanding actions — separate query with fallback if table not synced
+      let outstandingActions: any[] = [];
+      try {
+        outstandingActions = await query(
+          `SELECT action_id, action_description, priority, assigned_to, assigned_role,
+                  due_by, status, notes
+           FROM incident_outstanding_actions
+           WHERE incident_id = $1 AND status != 'completed'
+           ORDER BY CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END,
+                    due_by`,
+          [id]
+        );
+      } catch { /* table may not be synced yet */ }
+
+      // Anomaly lead time: first_complaint_time - start_timestamp
+      const anomalyLeadMinutes = incident.first_complaint_time && incident.start_timestamp
+        ? Math.round((new Date(incident.first_complaint_time).getTime() - new Date(incident.start_timestamp).getTime()) / 60_000)
+        : null;
+
       // Enrich incident with computed counts
       const enriched = {
         ...incident,
         affected_dma_count: Number(dmaSummary?.affected_dma_count) || 0,
         affected_properties: Number(dmaSummary?.total_properties) || 0,
         sensitive_site_count: Number(dmaSummary?.sensitive_site_count) || 0,
+        anomaly_lead_minutes: anomalyLeadMinutes,
       };
-      // The incident_events table has no "status" column — all events are completed facts.
-      // Outstanding actions come from the playbook, not from events.
       res.json({
-        incident: enriched,
-        actions_taken: events,
-        outstanding_actions: [],
-        communications: comms,
+        incident: shiftRow(enriched, "start_timestamp", "created_at", "first_complaint_time"),
+        actions_taken: shiftRows(events, "event_timestamp"),
+        outstanding_actions: shiftRows(outstandingActions, "due_by"),
+        communications: shiftRows(comms, "comms_timestamp"),
       });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -166,6 +289,10 @@ async function setupRoutes(appkit: any) {
       }
       sql += " ORDER BY dma_code";
       const rows = await query(sql, params.length ? params : undefined);
+      if (!demoScenarioActive) {
+        const normalised = rows.map((r: any) => ({ ...r, rag_status: "GREEN", avg_pressure: r.avg_pressure ?? rule("DEFAULT_BASE_PRESSURE") }));
+        return res.json({ dma_statuses: normalised });
+      }
       res.json({ dma_statuses: rows });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -193,7 +320,7 @@ async function setupRoutes(appkit: any) {
   app.get("/api/dma/:code/detail", async (req: any, res: any) => {
     try {
       const row = await queryOne(
-        "SELECT * FROM dma_summary WHERE dma_code = $1", [req.params.code]
+        "SELECT * FROM vw_dma_summary WHERE dma_code = $1", [req.params.code]
       );
       if (!row) return res.status(404).json({ error: "DMA summary not found" });
       res.json(row);
@@ -204,30 +331,41 @@ async function setupRoutes(appkit: any) {
 
   app.get("/api/dma/:code/sensors", async (req: any, res: any) => {
     try {
-      // Two fast queries instead of one slow LATERAL join
-      const [sensorRows, latestRows] = await Promise.all([
-        query("SELECT * FROM dim_sensor WHERE dma_code = $1 ORDER BY sensor_id", [req.params.code]),
-        query(
-          `SELECT DISTINCT ON (sensor_id) sensor_id, value AS latest_value, sensor_type
-           FROM fact_telemetry
-           WHERE dma_code = $1
-           ORDER BY sensor_id, timestamp DESC`,
+      // Use pre-computed mv_sensor_latest instead of dim_sensor + fact_telemetry join
+      let sensors: any[];
+      try {
+        const rows = await query(
+          `SELECT sensor_id, dma_code, sensor_type, timestamp,
+                  total_head_pressure AS latest_pressure, flow_rate AS latest_flow,
+                  quality_flag, latitude, longitude, elevation_m, status
+           FROM mv_sensor_latest WHERE dma_code = $1
+           ORDER BY total_head_pressure ASC NULLS LAST`,
           [req.params.code]
-        ),
-      ]);
-      // Index latest readings by sensor_id
-      const latest: Record<string, any> = {};
-      for (const r of latestRows) latest[r.sensor_id] = r;
-      // Merge and sort low-pressure first
-      const sensors = sensorRows.map((s: any) => {
-        const reading = latest[s.sensor_id];
-        return {
-          ...s,
-          latest_pressure: s.sensor_type === "pressure" ? reading?.latest_value ?? null : null,
-          latest_flow: s.sensor_type === "flow" ? reading?.latest_value ?? null : null,
-        };
-      });
-      sensors.sort((a: any, b: any) => (a.latest_pressure ?? 999) - (b.latest_pressure ?? 999));
+        );
+        sensors = rows;
+      } catch {
+        // Fallback: mv_sensor_latest not synced yet
+        const [sensorRows, latestRows] = await Promise.all([
+          query("SELECT * FROM dim_sensor WHERE dma_code = $1 ORDER BY sensor_id", [req.params.code]),
+          query(
+            `SELECT DISTINCT ON (sensor_id) sensor_id, value AS latest_value, sensor_type
+             FROM fact_telemetry WHERE dma_code = $1
+             ORDER BY sensor_id, timestamp DESC`,
+            [req.params.code]
+          ),
+        ]);
+        const latest: Record<string, any> = {};
+        for (const r of latestRows) latest[r.sensor_id] = r;
+        sensors = sensorRows.map((s: any) => {
+          const reading = latest[s.sensor_id];
+          return {
+            ...s,
+            latest_pressure: s.sensor_type === "pressure" ? reading?.latest_value ?? null : null,
+            latest_flow: s.sensor_type === "flow" ? reading?.latest_value ?? null : null,
+          };
+        });
+        sensors.sort((a: any, b: any) => (a.latest_pressure ?? 999) - (b.latest_pressure ?? 999));
+      }
       res.json({ sensors });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -251,7 +389,7 @@ async function setupRoutes(appkit: any) {
         "SELECT * FROM customer_complaints WHERE dma_code = $1 ORDER BY complaint_timestamp DESC LIMIT 50",
         [req.params.code]
       );
-      res.json({ complaints: rows });
+      res.json({ complaints: shiftRows(rows, "complaint_timestamp") });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -291,7 +429,7 @@ async function setupRoutes(appkit: any) {
         );
         rows.reverse();
       }
-      res.json({ rag_history: rows });
+      res.json({ rag_history: shiftRows(rows, "recorded_at") });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -354,7 +492,7 @@ async function setupRoutes(appkit: any) {
                 COALESCE(sm.sensitive_premises_count, 0) AS sensitive_premises_count
          FROM dim_dma d
          LEFT JOIN dma_status s ON d.dma_code = s.dma_code
-         LEFT JOIN dma_summary sm ON d.dma_code = sm.dma_code
+         LEFT JOIN vw_dma_summary sm ON d.dma_code = sm.dma_code
          ORDER BY d.dma_code`
       );
       const features = rows.map((r: any) => {
@@ -364,8 +502,8 @@ async function setupRoutes(appkit: any) {
           properties: {
             dma_code: r.dma_code,
             dma_name: r.dma_name,
-            rag_status: r.rag_status ?? "GREEN",
-            avg_pressure: r.avg_pressure,
+            rag_status: demoScenarioActive ? (r.rag_status ?? "GREEN") : "GREEN",
+            avg_pressure: demoScenarioActive ? r.avg_pressure : (r.avg_pressure ?? rule("DEFAULT_BASE_PRESSURE")),
             sensitive_premises_count: Number(r.sensitive_premises_count) || 0,
           },
           geometry: geom,
@@ -404,21 +542,34 @@ async function setupRoutes(appkit: any) {
   // ---- Map overlays: sensors, complaints, sensitive premises --------------
   app.get("/api/map/sensors", async (_req: any, res: any) => {
     try {
-      const rows = await query(
-        `SELECT s.sensor_id, s.sensor_type, s.latitude, s.longitude, s.dma_code,
-                d.rag_status, d.avg_pressure
-         FROM dim_sensor s
-         LEFT JOIN dma_status d ON s.dma_code = d.dma_code
-         WHERE s.latitude IS NOT NULL AND s.longitude IS NOT NULL`
-      );
+      // Try mv_sensor_latest first (includes lat/lng + latest reading)
+      let rows: any[];
+      try {
+        rows = await query(
+          `SELECT m.sensor_id, m.sensor_type, m.latitude, m.longitude, m.dma_code,
+                  d.rag_status, m.total_head_pressure AS avg_pressure
+           FROM mv_sensor_latest m
+           LEFT JOIN dma_status d ON m.dma_code = d.dma_code
+           WHERE m.latitude IS NOT NULL AND m.longitude IS NOT NULL`
+        );
+      } catch {
+        rows = await query(
+          `SELECT s.sensor_id, s.sensor_type, s.latitude, s.longitude, s.dma_code,
+                  d.rag_status, d.avg_pressure
+           FROM dim_sensor s
+           LEFT JOIN dma_status d ON s.dma_code = d.dma_code
+           WHERE s.latitude IS NOT NULL AND s.longitude IS NOT NULL`
+        );
+      }
+      const basePressure = rule("DEFAULT_BASE_PRESSURE");
       const features = rows.map((r: any) => ({
         type: "Feature",
         properties: {
           sensor_id: r.sensor_id,
           sensor_type: r.sensor_type,
           dma_code: r.dma_code,
-          rag_status: r.rag_status ?? "GREEN",
-          avg_pressure: r.avg_pressure != null ? Number(r.avg_pressure) : null,
+          rag_status: demoScenarioActive ? (r.rag_status ?? "GREEN") : "GREEN",
+          avg_pressure: demoScenarioActive ? (r.avg_pressure != null ? Number(r.avg_pressure) : null) : basePressure,
         },
         geometry: { type: "Point", coordinates: [Number(r.longitude), Number(r.latitude)] },
       }));
@@ -430,6 +581,7 @@ async function setupRoutes(appkit: any) {
 
   // Global complaints overlay (all DMAs, last 7 days)
   app.get("/api/map/complaints", async (_req: any, res: any) => {
+    if (!demoScenarioActive) return res.json({ type: "FeatureCollection", features: [] });
     try {
       const since = new Date(Date.now() - 7 * 24 * 3600_000).toISOString();
       const rows = await query(
@@ -445,7 +597,7 @@ async function setupRoutes(appkit: any) {
         type: "Feature",
         properties: {
           complaint_type: r.complaint_type,
-          complaint_timestamp: r.complaint_timestamp,
+          complaint_timestamp: shiftTime(r.complaint_timestamp),
           property_id: r.property_id,
           dma_code: r.dma_code,
         },
@@ -535,6 +687,32 @@ async function setupRoutes(appkit: any) {
     }
   });
 
+  // ---- Map Centre (computed from DMA centroids) --------------------------
+  app.get("/api/map/centre", async (_req: any, res: any) => {
+    try {
+      const row = await queryOne(
+        `SELECT AVG(centroid_latitude) AS lat, AVG(centroid_longitude) AS lng
+         FROM vw_dma_summary
+         WHERE centroid_latitude IS NOT NULL`
+      );
+      if (row?.lat != null && row?.lng != null) {
+        res.json({ latitude: Number(row.lat), longitude: Number(row.lng) });
+      } else {
+        // Fallback: compute from dim_dma geometry centroids
+        const fallback = await queryOne(
+          `SELECT AVG(ST_Y(ST_Centroid(geom))) AS lat, AVG(ST_X(ST_Centroid(geom))) AS lng FROM dim_dma`
+        );
+        res.json({
+          latitude: Number(fallback?.lat) || 51.49,
+          longitude: Number(fallback?.lng) || -0.08,
+        });
+      }
+    } catch (e: any) {
+      // Ultimate fallback — hardcoded London
+      res.json({ latitude: 51.49, longitude: -0.08 });
+    }
+  });
+
   // ---- Playbooks --------------------------------------------------------
   app.get("/api/playbooks/:type", async (req: any, res: any) => {
     try {
@@ -586,7 +764,7 @@ async function setupRoutes(appkit: any) {
         `SELECT * FROM ${COMMS_UNION} WHERE incident_id = $1 ORDER BY comms_timestamp DESC`,
         [req.params.incidentId]
       );
-      res.json({ communications: rows });
+      res.json({ communications: shiftRows(rows, "comms_timestamp") });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -664,13 +842,21 @@ async function setupRoutes(appkit: any) {
       );
 
       let hoursElapsed = 0;
-      const createdAt = incident.created_at || incident.start_timestamp;
+      const rawCreatedAt = incident.created_at || incident.start_timestamp;
+      const createdAt = shiftTime(rawCreatedAt) ?? rawCreatedAt;
       if (createdAt) {
         hoursElapsed = (Date.now() - new Date(createdAt).getTime()) / 3_600_000;
       }
 
-      const penaltyHours = Math.max(0, hoursElapsed - 3);
-      const penalty = totalProperties * penaltyHours * 580;
+      const gracePeriod = rule("OFWAT_GRACE_PERIOD");
+      const penaltyRate = rule("OFWAT_PENALTY_RATE");
+      const penaltyHours = Math.max(0, hoursElapsed - gracePeriod);
+      const penalty = totalProperties * penaltyHours * penaltyRate;
+
+      const dwiVerbal = rule("DWI_VERBAL_DEADLINE");
+      const dwiWritten = rule("DWI_WRITTEN_DEADLINE");
+      const ofwat3h = rule("OFWAT_GRACE_PERIOD");
+      const ofwat12h = rule("OFWAT_ESCALATION_THRESHOLD");
 
       // Check if proactive comms have been requested for this incident
       const commsRequests = await query(
@@ -681,22 +867,28 @@ async function setupRoutes(appkit: any) {
 
       res.json({
         incident_id: incidentId,
-        incident,
+        incident: shiftRow(incident, "start_timestamp", "created_at"),
         affected_properties: properties,
         total_properties: totalProperties,
         proactive_comms_requested: commsRequested,
         hours_elapsed: Math.round(hoursElapsed * 100) / 100,
+        rules: {
+          penalty_rate: penaltyRate,
+          grace_period: gracePeriod,
+          cmex_green: rule("CMEX_GREEN_THRESHOLD"),
+          cmex_amber: rule("CMEX_AMBER_THRESHOLD"),
+        },
         deadlines: {
-          dwi_verbal:  { label: "DWI Verbal Notification", hours: 1,  status: hoursElapsed >= 1  ? "DONE" : "PENDING" },
-          dwi_written: { label: "DWI Written Report",      hours: 24, status: hoursElapsed >= 24 ? "DONE" : "DUE" },
-          ofwat_3h:    { label: "Ofwat 3h Threshold",      hours: 3,  status: hoursElapsed >= 3  ? "BREACHED" : "OK" },
-          ofwat_12h:   { label: "Ofwat 12h Threshold",     hours: 12, status: hoursElapsed >= 12 ? "BREACHED" : "OK" },
+          dwi_verbal:  { label: "DWI Verbal Notification", hours: dwiVerbal,  status: hoursElapsed >= dwiVerbal  ? "DONE" : "PENDING" },
+          dwi_written: { label: "DWI Written Report",      hours: dwiWritten, status: hoursElapsed >= dwiWritten ? "DONE" : "DUE" },
+          ofwat_3h:    { label: "Ofwat 3h Threshold",      hours: ofwat3h,    status: hoursElapsed >= ofwat3h    ? "BREACHED" : "OK" },
+          ofwat_12h:   { label: "Ofwat 12h Threshold",     hours: ofwat12h,   status: hoursElapsed >= ofwat12h   ? "BREACHED" : "OK" },
         },
         penalty_calculation: {
-          formula: "properties x (hours - 3) x GBP 580",
+          formula: `properties x (hours - ${gracePeriod}) x GBP ${penaltyRate}`,
           properties: totalProperties,
           penalty_hours: Math.round(penaltyHours * 100) / 100,
-          rate_per_property_hour: 580,
+          rate_per_property_hour: penaltyRate,
           estimated_penalty_gbp: Math.round(penalty * 100) / 100,
         },
       });

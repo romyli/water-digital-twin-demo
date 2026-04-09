@@ -77,5 +77,16 @@ export const createCommsRequest = (incidentId: string, req: any) =>
     body: JSON.stringify(req),
   });
 
+// --- Demo Scenario ---
+export const fetchDemoStatus = () => request("/api/demo/status");
+export const activateDemo = () => request("/api/demo/activate", { method: "POST" });
+export const resetDemo = () => request("/api/demo/reset", { method: "POST" });
+
+// --- Config ---
+export const fetchRules = () => request("/api/config/rules");
+
+// --- Map Centre ---
+export const fetchMapCentre = () => request("/api/map/centre");
+
 // --- Regulatory ---
 export const fetchRegulatory = (incidentId: string) => request(`/api/regulatory/${incidentId}`);
