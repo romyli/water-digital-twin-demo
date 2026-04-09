@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import maplibregl from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMapGeoJSON, fetchMapAssets } from "../api";
 import DMADetail from "./DMADetail";
