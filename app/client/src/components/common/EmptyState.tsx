@@ -1,4 +1,4 @@
-import React from "react";
+import type { ReactNode } from "react";
 
 export default function EmptyState({
   title = "No data",
@@ -7,7 +7,7 @@ export default function EmptyState({
 }: {
   title?: string;
   message?: string;
-  icon?: React.ReactNode;
+  icon?: ReactNode;
 }) {
   return (
     <div className="flex flex-col items-center justify-center py-10 text-center">

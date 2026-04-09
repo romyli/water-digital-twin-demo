@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import mapboxgl from "mapbox-gl";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMapGeoJSON, fetchMapAssets } from "../api";

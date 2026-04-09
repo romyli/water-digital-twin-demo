@@ -1,5 +1,3 @@
-import React from "react";
-
 const RAG_COLORS: Record<string, string> = {
   RED: "#DC2626",
   AMBER: "#F59E0B",

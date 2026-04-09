@@ -1,5 +1,3 @@
-import React from "react";
-
 const STATUS_CONFIG: Record<string, { bg: string; text: string; dot: string }> = {
   RED: { bg: "bg-red-100", text: "text-red-800", dot: "bg-red-500" },
   AMBER: { bg: "bg-amber-100", text: "text-amber-800", dot: "bg-amber-500" },

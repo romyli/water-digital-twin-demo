@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchActiveIncidents, fetchIncidentEvents } from "../api";
 import { format } from "date-fns";
@@ -30,7 +30,7 @@ export default function AlarmLog({ activeIncident }: { activeIncident: any }) {
 
   const eventTypes = useMemo(() => {
     const types = new Set(allEvents.map((e: any) => e.event_type).filter(Boolean));
-    return Array.from(types).sort();
+    return Array.from(types).sort() as string[];
   }, [allEvents]);
 
   const filteredEvents = useMemo(() => {

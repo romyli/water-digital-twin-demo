@@ -1,4 +1,3 @@
-import React from "react";
 import { GenieChat } from "@databricks/appkit-ui/react";
 
 /**

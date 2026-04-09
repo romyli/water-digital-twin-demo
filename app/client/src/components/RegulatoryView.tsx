@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { fetchRegulatory, createCommsRequest } from "../api";
 import { format, differenceInSeconds } from "date-fns";

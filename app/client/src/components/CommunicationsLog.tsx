@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchComms, addComms } from "../api";
 import { format } from "date-fns";
@@ -39,7 +39,7 @@ export default function CommunicationsLog({
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!formData.message.trim()) return;
     mutation.mutate(formData);
