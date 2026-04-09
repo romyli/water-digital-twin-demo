@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState, useCallback } from "react";
-import maplibregl from "maplibre-gl";
+import { useState, useCallback, useMemo } from "react";
+import { Map, Source, Layer, Popup, NavigationControl } from "react-map-gl/maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMapGeoJSON, fetchMapAssets } from "../api";
 import DMADetail from "./DMADetail";
 import LoadingSpinner from "./common/LoadingSpinner";
+import type { MapLayerMouseEvent } from "react-map-gl/maplibre";
+
+const MAP_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 
 const RAG_FILL: Record<string, string> = {
   RED: "rgba(220, 38, 38, 0.35)",
@@ -16,15 +20,21 @@ const RAG_STROKE: Record<string, string> = {
   GREEN: "#16A34A",
 };
 
-// Free OSM-based tile style (no API key required)
-const MAP_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+const fillColor: any = [
+  "match", ["get", "rag_status"],
+  "RED", RAG_FILL.RED, "AMBER", RAG_FILL.AMBER, "GREEN", RAG_FILL.GREEN,
+  RAG_FILL.GREEN,
+];
+const strokeColor: any = [
+  "match", ["get", "rag_status"],
+  "RED", RAG_STROKE.RED, "AMBER", RAG_STROKE.AMBER, "GREEN", RAG_STROKE.GREEN,
+  RAG_STROKE.GREEN,
+];
 
 export default function MapView({ activeIncident }: { activeIncident: any }) {
-  const mapContainer = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
-  const popupRef = useRef<maplibregl.Popup | null>(null);
   const [selectedDMA, setSelectedDMA] = useState<string | null>(null);
   const [filter, setFilter] = useState("ALL");
+  const [hoverInfo, setHoverInfo] = useState<{ lng: number; lat: number; dma_code: string; dma_name: string; rag_status: string } | null>(null);
 
   const { data: geojson, isLoading, error: geoError } = useQuery({
     queryKey: ["mapGeoJSON"],
@@ -38,154 +48,47 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
     enabled: !!selectedDMA,
   });
 
-  const filterFeatures = useCallback(
-    (fc: any) => {
-      if (!fc?.features) return fc;
-      if (filter === "ALL") return fc;
-      return {
-        ...fc,
-        features: fc.features.filter((f: any) => {
-          const rag = f.properties?.rag_status?.toUpperCase();
-          if (filter === "ALARMED") return rag === "RED";
-          if (filter === "CHANGED") return rag === "RED" || rag === "AMBER";
-          if (filter === "SENSITIVE") return f.properties?.is_sensitive;
-          return true;
-        }),
-      };
-    },
-    [filter]
-  );
-
-  // Initialize map
-  useEffect(() => {
-    if (mapRef.current || !mapContainer.current) return;
-    const map = new maplibregl.Map({
-      container: mapContainer.current,
-      style: MAP_STYLE,
-      center: [-0.08, 51.49],
-      zoom: 11,
-    });
-    map.addControl(new maplibregl.NavigationControl(), "top-right");
-    mapRef.current = map;
-    return () => {
-      map.remove();
-      mapRef.current = null;
+  const filteredGeoJSON = useMemo(() => {
+    if (!geojson?.features) return geojson;
+    if (filter === "ALL") return geojson;
+    return {
+      ...geojson,
+      features: geojson.features.filter((f: any) => {
+        const rag = f.properties?.rag_status?.toUpperCase();
+        if (filter === "ALARMED") return rag === "RED";
+        if (filter === "CHANGED") return rag === "RED" || rag === "AMBER";
+        if (filter === "SENSITIVE") return f.properties?.is_sensitive;
+        return true;
+      }),
     };
+  }, [geojson, filter]);
+
+  const onClick = useCallback((e: MapLayerMouseEvent) => {
+    const feature = e.features?.[0];
+    if (feature?.properties?.dma_code) {
+      setSelectedDMA(feature.properties.dma_code);
+    }
   }, []);
 
-  // Load DMA polygons
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !geojson) return;
-
-    const loadData = () => {
-      const fc = filterFeatures(geojson);
-      const fillExpr: any = [
-        "match", ["get", "rag_status"],
-        "RED", RAG_FILL.RED, "AMBER", RAG_FILL.AMBER, "GREEN", RAG_FILL.GREEN,
-        RAG_FILL.GREEN,
-      ];
-      const strokeExpr: any = [
-        "match", ["get", "rag_status"],
-        "RED", RAG_STROKE.RED, "AMBER", RAG_STROKE.AMBER, "GREEN", RAG_STROKE.GREEN,
-        RAG_STROKE.GREEN,
-      ];
-
-      if (map.getSource("dma-polygons")) {
-        (map.getSource("dma-polygons") as maplibregl.GeoJSONSource).setData(fc);
-      } else {
-        map.addSource("dma-polygons", { type: "geojson", data: fc });
-        map.addLayer({
-          id: "dma-fill",
-          type: "fill",
-          source: "dma-polygons",
-          paint: { "fill-color": fillExpr, "fill-opacity": 0.5 },
-        });
-        map.addLayer({
-          id: "dma-outline",
-          type: "line",
-          source: "dma-polygons",
-          paint: { "line-color": strokeExpr, "line-width": 2 },
-        });
-
-        map.on("click", "dma-fill", (e) => {
-          const props = e.features?.[0]?.properties;
-          if (props?.dma_code) setSelectedDMA(props.dma_code);
-        });
-        map.on("mouseenter", "dma-fill", () => {
-          map.getCanvas().style.cursor = "pointer";
-        });
-        map.on("mouseleave", "dma-fill", () => {
-          map.getCanvas().style.cursor = "";
-          if (popupRef.current) {
-            popupRef.current.remove();
-            popupRef.current = null;
-          }
-        });
-        map.on("mousemove", "dma-fill", (e) => {
-          const props = e.features?.[0]?.properties;
-          if (!props) return;
-          const html = `
-            <div class="text-xs">
-              <div class="font-semibold">${props.dma_name || props.dma_code}</div>
-              <div>Status: <strong>${props.rag_status || "GREEN"}</strong></div>
-              ${props.anomaly_confidence ? `<div>Anomaly: ${(props.anomaly_confidence * 100).toFixed(0)}%</div>` : ""}
-            </div>
-          `;
-          if (popupRef.current) {
-            popupRef.current.setLngLat(e.lngLat).setHTML(html);
-          } else {
-            popupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false })
-              .setLngLat(e.lngLat)
-              .setHTML(html)
-              .addTo(map);
-          }
-        });
-      }
-    };
-
-    if (map.loaded()) loadData();
-    else map.on("load", loadData);
-  }, [geojson, filter, filterFeatures]);
-
-  // Load asset overlays
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    const loadAssets = () => {
-      if (map.getSource("dma-assets")) {
-        (map.getSource("dma-assets") as maplibregl.GeoJSONSource).setData(
-          assetGeoJSON || { type: "FeatureCollection", features: [] }
-        );
-        return;
-      }
-      if (!assetGeoJSON) return;
-      map.addSource("dma-assets", { type: "geojson", data: assetGeoJSON });
-      map.addLayer({
-        id: "asset-lines",
-        type: "line",
-        source: "dma-assets",
-        filter: ["==", ["geometry-type"], "LineString"],
-        paint: { "line-color": "#6366F1", "line-width": 3, "line-dasharray": [2, 2] },
+  const onHover = useCallback((e: MapLayerMouseEvent) => {
+    const feature = e.features?.[0];
+    if (feature?.properties) {
+      setHoverInfo({
+        lng: e.lngLat.lng,
+        lat: e.lngLat.lat,
+        dma_code: feature.properties.dma_code,
+        dma_name: feature.properties.dma_name || feature.properties.dma_code,
+        rag_status: feature.properties.rag_status || "GREEN",
       });
-      map.addLayer({
-        id: "asset-points",
-        type: "circle",
-        source: "dma-assets",
-        filter: ["==", ["geometry-type"], "Point"],
-        paint: { "circle-radius": 6, "circle-color": "#6366F1", "circle-stroke-width": 2, "circle-stroke-color": "#fff" },
-      });
-    };
-
-    if (map.loaded()) loadAssets();
-    else map.on("load", loadAssets);
-  }, [assetGeoJSON]);
+    } else {
+      setHoverInfo(null);
+    }
+  }, []);
 
   if (isLoading) return <LoadingSpinner message="Loading network map..." />;
 
   const geoErrorMsg = geoError
-    ? `Failed to load DMA data: ${(geoError as Error).message}. Check that PostGIS is enabled and the sync notebook has been run.`
+    ? `Failed to load DMA data: ${(geoError as Error).message}.`
     : null;
 
   const filterButtons = [
@@ -198,7 +101,72 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
   return (
     <div className="relative h-[calc(100vh-3.5rem)] flex">
       <div className="flex-1 relative">
-        <div ref={mapContainer} className="absolute inset-0" />
+        <Map
+          initialViewState={{ longitude: -0.08, latitude: 51.49, zoom: 11 }}
+          style={{ position: "absolute", inset: 0 }}
+          mapStyle={MAP_STYLE}
+          interactiveLayerIds={["dma-fill"]}
+          onClick={onClick}
+          onMouseMove={onHover}
+          onMouseLeave={() => setHoverInfo(null)}
+          cursor={hoverInfo ? "pointer" : "grab"}
+        >
+          <NavigationControl position="top-right" />
+
+          {filteredGeoJSON && (
+            <Source id="dma-polygons" type="geojson" data={filteredGeoJSON}>
+              <Layer
+                id="dma-fill"
+                type="fill"
+                paint={{ "fill-color": fillColor, "fill-opacity": 0.5 }}
+              />
+              <Layer
+                id="dma-outline"
+                type="line"
+                paint={{ "line-color": strokeColor, "line-width": 2 }}
+              />
+            </Source>
+          )}
+
+          {assetGeoJSON && (
+            <Source id="dma-assets" type="geojson" data={assetGeoJSON}>
+              <Layer
+                id="asset-lines"
+                type="line"
+                filter={["==", ["geometry-type"], "LineString"]}
+                paint={{ "line-color": "#6366F1", "line-width": 3, "line-dasharray": [2, 2] }}
+              />
+              <Layer
+                id="asset-points"
+                type="circle"
+                filter={["==", ["geometry-type"], "Point"]}
+                paint={{
+                  "circle-radius": 6,
+                  "circle-color": "#6366F1",
+                  "circle-stroke-width": 2,
+                  "circle-stroke-color": "#fff",
+                }}
+              />
+            </Source>
+          )}
+
+          {hoverInfo && (
+            <Popup
+              longitude={hoverInfo.lng}
+              latitude={hoverInfo.lat}
+              closeButton={false}
+              closeOnClick={false}
+              anchor="bottom"
+              offset={10}
+            >
+              <div className="text-xs">
+                <div className="font-semibold">{hoverInfo.dma_name}</div>
+                <div>Status: <strong>{hoverInfo.rag_status}</strong></div>
+              </div>
+            </Popup>
+          )}
+        </Map>
+
         {geoErrorMsg && (
           <div className="absolute top-3 left-3 right-3 z-20 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-800">
             {geoErrorMsg}
