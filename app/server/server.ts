@@ -263,20 +263,19 @@ async function setupRoutes(appkit: any) {
   });
 
   // ---- Sensors & Telemetry ----------------------------------------------
-  // fact_telemetry columns: sensor_id, sensor_type, dma_code, timestamp, value, unit, quality_flag, anomaly_flag
+  // fact_telemetry columns: sensor_id, sensor_type, dma_code, timestamp, value, quality_flag, anomaly_flag
   app.get("/api/sensor/:id/telemetry", async (req: any, res: any) => {
     try {
       const hours = Math.min(168, Math.max(1, Number(req.query.hours) || 24));
       const since = new Date(Date.now() - hours * 3600_000).toISOString();
       let rows = await query(
-        `SELECT sensor_id, sensor_type, timestamp AS ts, value, unit
+        `SELECT sensor_id, sensor_type, timestamp AS ts, value
          FROM fact_telemetry WHERE sensor_id = $1 AND timestamp >= $2 ORDER BY timestamp ASC`,
         [req.params.id, since]
       );
       if (rows.length === 0) {
-        // Static demo data fallback — return most recent readings
         rows = await query(
-          `SELECT sensor_id, sensor_type, timestamp AS ts, value, unit
+          `SELECT sensor_id, sensor_type, timestamp AS ts, value
            FROM fact_telemetry WHERE sensor_id = $1 ORDER BY timestamp DESC LIMIT 500`,
           [req.params.id]
         );
