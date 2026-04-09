@@ -8,9 +8,9 @@ import LoadingSpinner from "./common/LoadingSpinner";
 import EmptyState from "./common/EmptyState";
 
 /* ---------- C-MeX Ring Gauge ---------- */
-function CmexRing({ percentage }: { percentage: number }) {
+function CmexRing({ percentage, greenThreshold = 70, amberThreshold = 40 }: { percentage: number; greenThreshold?: number; amberThreshold?: number }) {
   const pct = Math.max(0, Math.min(100, percentage));
-  const color = pct > 70 ? "#16A34A" : pct > 40 ? "#F59E0B" : "#DC2626";
+  const color = pct > greenThreshold ? "#16A34A" : pct > amberThreshold ? "#F59E0B" : "#DC2626";
   const circumference = 2 * Math.PI * 54;
   const offset = circumference - (pct / 100) * circumference;
   return (
@@ -102,7 +102,7 @@ function DeadlineBar({
   );
 }
 
-export default function RegulatoryView({ incident }: { incident: any }) {
+export default function RegulatoryView({ incident, timeOffset = 0 }: { incident: any; timeOffset?: number }) {
   const { data, isLoading, error } = useQuery({
     queryKey: ["regulatory", incident?.incident_id],
     queryFn: () => fetchRegulatory(incident.incident_id),
@@ -119,7 +119,7 @@ export default function RegulatoryView({ incident }: { incident: any }) {
       }),
   });
 
-  const { elapsed } = useCountdown(incident?.created_at || incident?.start_timestamp);
+  const { elapsed } = useCountdown(incident?.created_at || incident?.start_timestamp, timeOffset);
 
   if (isLoading) return <LoadingSpinner message="Loading regulatory data..." />;
   if (error)
@@ -137,6 +137,11 @@ export default function RegulatoryView({ incident }: { incident: any }) {
   const hoursElapsed = reg.hours_elapsed || 0;
   const commsRequested = reg.proactive_comms_requested || false;
   const proactiveRate = commsRequested ? 100 : 0;
+  const regRules = reg.rules || {};
+  const penaltyRate = regRules.penalty_rate ?? 580;
+  const gracePeriod = regRules.grace_period ?? 3;
+  const cmexGreen = regRules.cmex_green ?? 70;
+  const cmexAmber = regRules.cmex_amber ?? 40;
 
   const incidentStart = incident?.created_at || incident?.start_timestamp;
   const startDate = incidentStart ? new Date(incidentStart) : null;
@@ -274,11 +279,11 @@ export default function RegulatoryView({ incident }: { incident: any }) {
           <span className="text-gray-400 font-bold text-lg">&times;</span>
           <div className="bg-white rounded-lg px-3 py-2 border shadow-sm text-center">
             <p className="text-lg font-bold text-gray-800 tabular-nums">{penalty.penalty_hours ?? 0}h</p>
-            <p className="text-xs text-gray-500">Hours over 3h</p>
+            <p className="text-xs text-gray-500">Hours over {gracePeriod}h</p>
           </div>
           <span className="text-gray-400 font-bold text-lg">&times;</span>
           <div className="bg-white rounded-lg px-3 py-2 border shadow-sm text-center">
-            <p className="text-lg font-bold text-gray-800">{"\u00A3"}580</p>
+            <p className="text-lg font-bold text-gray-800">{"\u00A3"}{penaltyRate}</p>
             <p className="text-xs text-gray-500">Per property/hr</p>
           </div>
         </div>
@@ -287,7 +292,7 @@ export default function RegulatoryView({ incident }: { incident: any }) {
       {/* C-MeX Ring Gauge */}
       <div className="card">
         <h2 className="panel-title">C-MeX Proactive Comms Rate</h2>
-        <CmexRing percentage={proactiveRate} />
+        <CmexRing percentage={proactiveRate} greenThreshold={cmexGreen} amberThreshold={cmexAmber} />
         <p className="text-xs text-gray-500 mt-3 text-center">
           Proportion of affected customers proactively contacted
         </p>

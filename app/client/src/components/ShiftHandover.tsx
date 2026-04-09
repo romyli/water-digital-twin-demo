@@ -29,7 +29,7 @@ export default function ShiftHandover({ incident, timeOffset = 0 }: { incident: 
       }),
     onSuccess: () => {
       setAcknowledged(true);
-      setAckTime(new Date());
+      setAckTime(new Date(timeOffset ? Date.now() - timeOffset : Date.now()));
       queryClient.invalidateQueries({ queryKey: ["handover", incident.incident_id] });
     },
   });

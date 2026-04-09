@@ -438,10 +438,11 @@ async function setupRoutes(appkit: any) {
       const since = new Date(now - hours * 3600_000).toISOString();
       let rows = await query(
         `SELECT sensor_id, sensor_type, timestamp AS ts, value
-         FROM fact_telemetry WHERE sensor_id = $1 AND timestamp >= $2 ORDER BY timestamp ASC`,
+         FROM fact_telemetry WHERE sensor_id = $1 AND timestamp >= $2 ORDER BY timestamp ASC LIMIT 1000`,
         [req.params.id, since]
       );
       if (rows.length === 0) {
+        // Fallback: use a narrower query with just the sensor filter + limit
         rows = await query(
           `SELECT sensor_id, sensor_type, timestamp AS ts, value
            FROM fact_telemetry WHERE sensor_id = $1 ORDER BY timestamp DESC LIMIT 500`,

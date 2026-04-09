@@ -29,7 +29,7 @@ function NetworkNormal() {
 function LiveClock({ timeOffset }: { timeOffset: number }) {
   const getTime = () => {
     const now = timeOffset ? new Date(Date.now() - timeOffset) : new Date();
-    return now.toLocaleTimeString("en-GB", { hour12: false });
+    return now.toLocaleTimeString("en-GB", { hour12: false, timeZone: "UTC" });
   };
   const [time, setTime] = useState(getTime);
   useEffect(() => {
@@ -321,7 +321,7 @@ export default function App() {
             <Route
               path="/regulatory"
               element={
-                hasIncident ? <RegulatoryView incident={activeIncident} /> : <NetworkNormal />
+                hasIncident ? <RegulatoryView incident={activeIncident} timeOffset={timeOffset} /> : <NetworkNormal />
               }
             />
             <Route path="/genie" element={<GeniePage />} />
