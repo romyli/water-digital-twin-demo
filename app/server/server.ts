@@ -28,9 +28,9 @@ async function setupRoutes(appkit: any) {
   // Communications: Delta-synced seed (communications_log) + app writes (app_communications_log)
   // Actual columns: comms_id, incident_id, comms_timestamp, recipient_role, recipient_name, channel, direction, summary, status
   const COMMS_UNION = `(
-    SELECT incident_id, channel, recipient_name, summary, direction, comms_timestamp FROM communications_log
+    SELECT incident_id, channel, recipient_name, summary, direction, comms_timestamp::text AS comms_timestamp FROM communications_log
     UNION ALL
-    SELECT incident_id, channel, recipient, message AS summary, sent_by AS direction, sent_at AS comms_timestamp FROM app_communications_log
+    SELECT incident_id, channel, recipient AS recipient_name, message AS summary, sent_by AS direction, sent_at::text AS comms_timestamp FROM app_communications_log
   ) AS all_comms`;
 
   appkit.server.extend((app: any) => {
