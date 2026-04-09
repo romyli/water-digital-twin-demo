@@ -202,7 +202,21 @@ def fact_telemetry():
 
 # COMMAND ----------
 
-@dp.materialized_view(name="silver.dim_dma")
+@dp.materialized_view(
+    name="silver.dim_dma",
+    schema="""
+        dma_code STRING NOT NULL CONSTRAINT pk_dim_dma PRIMARY KEY,
+        dma_name STRING,
+        dma_area_code STRING,
+        geometry_wkt STRING,
+        centroid_latitude DOUBLE,
+        centroid_longitude DOUBLE,
+        avg_elevation DOUBLE,
+        h3_index STRING,
+        pressure_red_threshold DOUBLE,
+        pressure_amber_threshold DOUBLE
+    """,
+)
 @dp.expect_or_drop("has_geometry", "geometry_wkt IS NOT NULL")
 def dim_dma():
     raw = spark.read.table("bronze.raw_dma_boundaries")
@@ -259,7 +273,29 @@ def dim_pma():
 
 # COMMAND ----------
 
-@dp.materialized_view(name="silver.dim_assets")
+@dp.materialized_view(
+    name="silver.dim_assets",
+    schema="""
+        asset_id STRING NOT NULL CONSTRAINT pk_dim_assets PRIMARY KEY,
+        asset_type STRING,
+        asset_name STRING,
+        dma_code STRING,
+        status STRING,
+        latitude DOUBLE,
+        longitude DOUBLE,
+        elevation_m DOUBLE,
+        geometry_wkt STRING,
+        diameter_inches DOUBLE,
+        length_km DOUBLE,
+        trip_timestamp TIMESTAMP,
+        install_date STRING,
+        manufacturer STRING,
+        model STRING,
+        capacity_kw DOUBLE,
+        last_maintenance STRING,
+        notes STRING
+    """,
+)
 @dp.expect_or_drop("has_geometry", "geometry_wkt IS NOT NULL")
 def dim_assets():
     raw = spark.read.table("bronze.raw_assets")
@@ -293,7 +329,27 @@ def dim_assets():
 
 # COMMAND ----------
 
-@dp.materialized_view(name="silver.dim_properties")
+@dp.materialized_view(
+    name="silver.dim_properties",
+    schema="""
+        property_id STRING NOT NULL CONSTRAINT pk_dim_properties PRIMARY KEY,
+        address STRING,
+        postcode STRING,
+        property_type STRING,
+        dma_code STRING NOT NULL
+            CONSTRAINT fk_property_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
+        customer_height_m DOUBLE,
+        elevation_m DOUBLE,
+        base_pressure DOUBLE,
+        latitude DOUBLE,
+        longitude DOUBLE,
+        occupants INT,
+        is_sensitive_premise BOOLEAN,
+        sensitive_premise_type STRING,
+        geometry_wkt STRING,
+        h3_index STRING
+    """,
+)
 @dp.expect("has_dma", "dma_code IS NOT NULL")
 def dim_properties():
     raw = spark.read.table("bronze.raw_customer_contacts")
@@ -319,8 +375,9 @@ def dim_properties():
         )
         .select(
             "property_id", "address", "postcode", "property_type", "dma_code",
-            "customer_height_m", "elevation_m", "latitude", "longitude",
-            "occupants", "is_sensitive_premise", "geometry_wkt", "h3_index"
+            "customer_height_m", "elevation_m", "base_pressure", "latitude", "longitude",
+            "occupants", "is_sensitive_premise", "sensitive_premise_type",
+            "geometry_wkt", "h3_index"
         )
     )
 
@@ -331,7 +388,23 @@ def dim_properties():
 
 # COMMAND ----------
 
-@dp.materialized_view(name="silver.customer_complaints")
+@dp.materialized_view(
+    name="silver.customer_complaints",
+    schema="""
+        complaint_id STRING NOT NULL,
+        property_id STRING
+            CONSTRAINT fk_complaint_property FOREIGN KEY REFERENCES silver.dim_properties(property_id),
+        dma_code STRING NOT NULL
+            CONSTRAINT fk_complaint_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
+        complaint_timestamp TIMESTAMP,
+        complaint_type STRING,
+        description STRING,
+        contact_channel STRING,
+        customer_height_m DOUBLE,
+        property_type STRING,
+        status STRING
+    """,
+)
 @dp.expect("valid_complaint_type", "complaint_type IN ('no_water', 'low_pressure', 'discoloured_water', 'other')")
 @dp.expect("has_dma", "dma_code IS NOT NULL")
 def customer_complaints():
@@ -361,7 +434,23 @@ def customer_complaints():
 
 # COMMAND ----------
 
-@dp.materialized_view(name="silver.dim_sensor")
+@dp.materialized_view(
+    name="silver.dim_sensor",
+    schema="""
+        sensor_id STRING NOT NULL CONSTRAINT pk_dim_sensor PRIMARY KEY,
+        sensor_type STRING,
+        dma_code STRING NOT NULL
+            CONSTRAINT fk_sensor_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
+        latitude DOUBLE,
+        longitude DOUBLE,
+        elevation_m DOUBLE,
+        install_date STRING,
+        manufacturer STRING,
+        model STRING,
+        status STRING,
+        last_calibration STRING
+    """,
+)
 @dp.expect("has_dma", "dma_code IS NOT NULL")
 def dim_sensor():
     return spark.read.table("bronze.raw_sensors")
@@ -373,7 +462,17 @@ def dim_sensor():
 
 # COMMAND ----------
 
-@dp.materialized_view(name="silver.dim_asset_dma_feed")
+@dp.materialized_view(
+    name="silver.dim_asset_dma_feed",
+    schema="""
+        asset_id STRING NOT NULL
+            CONSTRAINT fk_asset_feed_asset FOREIGN KEY REFERENCES silver.dim_assets(asset_id),
+        dma_code STRING NOT NULL
+            CONSTRAINT fk_asset_feed_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
+        feed_type STRING,
+        notes STRING
+    """,
+)
 def dim_asset_dma_feed():
     return spark.read.table("bronze.raw_asset_dma_feed")
 
@@ -384,7 +483,24 @@ def dim_asset_dma_feed():
 
 # COMMAND ----------
 
-@dp.materialized_view(name="silver.dim_reservoirs")
+@dp.materialized_view(
+    name="silver.dim_reservoirs",
+    schema="""
+        reservoir_id STRING NOT NULL CONSTRAINT pk_dim_reservoirs PRIMARY KEY,
+        reservoir_name STRING,
+        latitude DOUBLE,
+        longitude DOUBLE,
+        elevation_m DOUBLE,
+        capacity_ml DOUBLE,
+        current_level_pct DOUBLE,
+        current_volume_ml DOUBLE,
+        hourly_demand_rate_ml DOUBLE,
+        hours_remaining DOUBLE,
+        status STRING,
+        last_inspection STRING,
+        notes STRING
+    """,
+)
 def dim_reservoirs():
     return spark.read.table("bronze.raw_reservoirs")
 
@@ -395,7 +511,16 @@ def dim_reservoirs():
 
 # COMMAND ----------
 
-@dp.materialized_view(name="silver.dim_reservoir_dma_feed")
+@dp.materialized_view(
+    name="silver.dim_reservoir_dma_feed",
+    schema="""
+        reservoir_id STRING NOT NULL
+            CONSTRAINT fk_reservoir_feed_reservoir FOREIGN KEY REFERENCES silver.dim_reservoirs(reservoir_id),
+        dma_code STRING NOT NULL
+            CONSTRAINT fk_reservoir_feed_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
+        feed_type STRING
+    """,
+)
 def dim_reservoir_dma_feed():
     return spark.read.table("bronze.raw_reservoir_dma_feed")
 
@@ -475,7 +600,7 @@ def vw_property_pressure():
     telemetry = spark.read.table("silver.fact_telemetry")
 
     return (
-        props.select("property_id", "dma_code", "property_type", "customer_height_m")
+        props.select("property_id", "dma_code", "property_type", "customer_height_m", "base_pressure")
         .join(
             telemetry.filter(F.col("sensor_type") == "pressure")
                      .select("dma_code", "timestamp", "total_head_pressure"),
@@ -485,4 +610,82 @@ def vw_property_pressure():
             "effective_pressure",
             F.col("total_head_pressure") - F.col("customer_height_m")
         )
+    )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## mv_sensor_latest
+# MAGIC
+# MAGIC Pre-computed latest reading per sensor. Eliminates slow LATERAL JOINs
+# MAGIC against `fact_telemetry` at query time.
+
+# COMMAND ----------
+
+@dp.materialized_view(name="gold.mv_sensor_latest")
+def mv_sensor_latest():
+    telemetry = spark.read.table("silver.fact_telemetry")
+    sensors = spark.read.table("silver.dim_sensor")
+
+    # Window to find the latest reading per sensor
+    from pyspark.sql.window import Window
+    w = Window.partitionBy("sensor_id").orderBy(F.col("timestamp").desc())
+
+    latest = (
+        telemetry
+        .withColumn("rn", F.row_number().over(w))
+        .filter(F.col("rn") == 1)
+        .drop("rn")
+        .select(
+            "sensor_id", "dma_code", "timestamp", "sensor_type",
+            "value", "total_head_pressure", "flow_rate", "quality_flag"
+        )
+    )
+
+    return (
+        sensors.select("sensor_id", "latitude", "longitude", "elevation_m", "status")
+        .join(latest, on="sensor_id", how="inner")
+    )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## vw_dma_summary
+# MAGIC
+# MAGIC Pre-aggregated DMA-level metrics: total properties, sensitive premises count,
+# MAGIC and downstream DMA count (from asset-DMA feed topology).
+
+# COMMAND ----------
+
+@dp.materialized_view(name="gold.vw_dma_summary")
+def vw_dma_summary():
+    props = spark.read.table("silver.dim_properties")
+    dma = spark.read.table("silver.dim_dma")
+    feeds = spark.read.table("silver.dim_asset_dma_feed")
+
+    # Count properties and sensitive premises per DMA
+    prop_stats = (
+        props
+        .groupBy("dma_code")
+        .agg(
+            F.count("*").alias("total_properties"),
+            F.sum(F.when(F.col("is_sensitive_premise") == True, 1).otherwise(0)).alias("sensitive_premises_count"),
+        )
+    )
+
+    # Count downstream DMAs: for each DMA, count how many OTHER DMAs share
+    # a common feeding asset (secondary feeds = downstream dependency)
+    downstream = (
+        feeds
+        .filter(F.col("feed_type") == "secondary")
+        .groupBy("dma_code")
+        .agg(F.count("*").alias("downstream_dma_count"))
+    )
+
+    return (
+        dma.select("dma_code", "dma_name", "dma_area_code", "avg_elevation",
+                    "centroid_latitude", "centroid_longitude")
+        .join(prop_stats, on="dma_code", how="left")
+        .join(downstream, on="dma_code", how="left")
+        .fillna(0, subset=["total_properties", "sensitive_premises_count", "downstream_dma_count"])
     )
