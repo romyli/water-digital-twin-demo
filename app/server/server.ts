@@ -175,28 +175,30 @@ async function setupRoutes(appkit: any) {
 
   app.get("/api/dma/:code/sensors", async (req: any, res: any) => {
     try {
-      // Join dim_sensor with the latest telemetry reading per sensor
-      const rows = await query(
-        `SELECT s.*,
-                t.latest_value,
-                t.sensor_type AS reading_type
-         FROM dim_sensor s
-         LEFT JOIN LATERAL (
-           SELECT value AS latest_value, sensor_type
+      // Two fast queries instead of one slow LATERAL join
+      const [sensorRows, latestRows] = await Promise.all([
+        query("SELECT * FROM dim_sensor WHERE dma_code = $1 ORDER BY sensor_id", [req.params.code]),
+        query(
+          `SELECT DISTINCT ON (sensor_id) sensor_id, value AS latest_value, sensor_type
            FROM fact_telemetry
-           WHERE sensor_id = s.sensor_id
-           ORDER BY timestamp DESC LIMIT 1
-         ) t ON true
-         WHERE s.dma_code = $1
-         ORDER BY t.latest_value ASC NULLS LAST, s.sensor_id`,
-        [req.params.code]
-      );
-      // Map to frontend-expected shape: latest_pressure / latest_flow
-      const sensors = rows.map((r: any) => ({
-        ...r,
-        latest_pressure: r.sensor_type === "pressure" ? r.latest_value : null,
-        latest_flow: r.sensor_type === "flow" ? r.latest_value : null,
-      }));
+           WHERE dma_code = $1
+           ORDER BY sensor_id, timestamp DESC`,
+          [req.params.code]
+        ),
+      ]);
+      // Index latest readings by sensor_id
+      const latest: Record<string, any> = {};
+      for (const r of latestRows) latest[r.sensor_id] = r;
+      // Merge and sort low-pressure first
+      const sensors = sensorRows.map((s: any) => {
+        const reading = latest[s.sensor_id];
+        return {
+          ...s,
+          latest_pressure: s.sensor_type === "pressure" ? reading?.latest_value ?? null : null,
+          latest_flow: s.sensor_type === "flow" ? reading?.latest_value ?? null : null,
+        };
+      });
+      sensors.sort((a: any, b: any) => (a.latest_pressure ?? 999) - (b.latest_pressure ?? 999));
       res.json({ sensors });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
