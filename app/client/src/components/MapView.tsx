@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import mapboxgl from "mapbox-gl";
+import maplibregl from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMapGeoJSON, fetchMapAssets } from "../api";
 import DMADetail from "./DMADetail";
 import LoadingSpinner from "./common/LoadingSpinner";
-
-mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || "";
 
 const RAG_FILL: Record<string, string> = {
   RED: "rgba(220, 38, 38, 0.35)",
@@ -18,10 +17,13 @@ const RAG_STROKE: Record<string, string> = {
   GREEN: "#16A34A",
 };
 
+// Free OSM-based tile style (no API key required)
+const MAP_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+
 export default function MapView({ activeIncident }: { activeIncident: any }) {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
-  const popupRef = useRef<mapboxgl.Popup | null>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const popupRef = useRef<maplibregl.Popup | null>(null);
   const [selectedDMA, setSelectedDMA] = useState<string | null>(null);
   const [filter, setFilter] = useState("ALL");
 
@@ -58,13 +60,13 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
   // Initialize map
   useEffect(() => {
     if (mapRef.current || !mapContainer.current) return;
-    const map = new mapboxgl.Map({
+    const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: "mapbox://styles/mapbox/light-v11",
+      style: MAP_STYLE,
       center: [-0.08, 51.49],
       zoom: 11,
     });
-    map.addControl(new mapboxgl.NavigationControl(), "top-right");
+    map.addControl(new maplibregl.NavigationControl(), "top-right");
     mapRef.current = map;
     return () => {
       map.remove();
@@ -91,7 +93,7 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
       ];
 
       if (map.getSource("dma-polygons")) {
-        (map.getSource("dma-polygons") as mapboxgl.GeoJSONSource).setData(fc);
+        (map.getSource("dma-polygons") as maplibregl.GeoJSONSource).setData(fc);
       } else {
         map.addSource("dma-polygons", { type: "geojson", data: fc });
         map.addLayer({
@@ -134,7 +136,7 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
           if (popupRef.current) {
             popupRef.current.setLngLat(e.lngLat).setHTML(html);
           } else {
-            popupRef.current = new mapboxgl.Popup({ closeButton: false, closeOnClick: false })
+            popupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false })
               .setLngLat(e.lngLat)
               .setHTML(html)
               .addTo(map);
@@ -154,7 +156,7 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
 
     const loadAssets = () => {
       if (map.getSource("dma-assets")) {
-        (map.getSource("dma-assets") as mapboxgl.GeoJSONSource).setData(
+        (map.getSource("dma-assets") as maplibregl.GeoJSONSource).setData(
           assetGeoJSON || { type: "FeatureCollection", features: [] }
         );
         return;
