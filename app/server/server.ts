@@ -451,12 +451,27 @@ async function setupRoutes(appkit: any) {
   // ---- Playbooks --------------------------------------------------------
   app.get("/api/playbooks/:type", async (req: any, res: any) => {
     try {
-      const rows = await query(
-        "SELECT * FROM dim_response_playbooks WHERE incident_type = $1 ORDER BY step_order ASC",
+      // dim_response_playbooks has one row per playbook with action_steps as a JSON column
+      const row = await queryOne(
+        "SELECT * FROM dim_response_playbooks WHERE incident_type = $1",
         [req.params.type]
       );
-      if (!rows.length) return res.status(404).json({ error: "Playbook not found" });
-      res.json({ incident_type: req.params.type, steps: rows });
+      if (!row) return res.status(404).json({ error: "Playbook not found" });
+      // Parse action_steps JSON into individual steps
+      let steps: any[] = [];
+      try {
+        steps = typeof row.action_steps === "string" ? JSON.parse(row.action_steps) : row.action_steps ?? [];
+      } catch { steps = []; }
+      // Map to frontend-expected shape: step_order, action, description
+      const mappedSteps = steps.map((s: any, i: number) => ({
+        step_order: s.step ?? i + 1,
+        action_id: `step-${s.step ?? i + 1}`,
+        action: s.action,
+        description: s.description,
+        responsible: s.responsible,
+        sla_minutes: s.sla_minutes,
+      }));
+      res.json({ incident_type: req.params.type, steps: mappedSteps });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
