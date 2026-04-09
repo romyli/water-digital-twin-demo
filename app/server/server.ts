@@ -104,15 +104,19 @@ async function setupRoutes(appkit: any) {
 
   app.post("/api/demo/activate", async (_req: any, res: any) => {
     try {
+      // Find the latest event timestamp — this becomes "now" so the incident
+      // start naturally appears in the past (e.g. 3.5h ago for the handover demo)
       const row = await queryOne(
-        "SELECT start_timestamp FROM dim_incidents WHERE status = 'active' ORDER BY created_at ASC LIMIT 1"
+        `SELECT i.incident_id,
+                (SELECT MAX(event_timestamp) FROM incident_events WHERE incident_id = i.incident_id) AS latest_event
+         FROM dim_incidents i WHERE i.status = 'active' ORDER BY i.created_at ASC LIMIT 1`
       );
       if (!row) return res.status(400).json({ error: "No active incident in dataset" });
-      const incidentStart = new Date(row.start_timestamp);
+      const anchor = new Date(row.latest_event);
       demoActivatedAt = new Date();
-      demoTimeOffset = demoActivatedAt.getTime() - incidentStart.getTime();
+      demoTimeOffset = demoActivatedAt.getTime() - anchor.getTime();
       demoScenarioActive = true;
-      console.log(`[demo] Scenario activated. Offset: ${Math.round(demoTimeOffset / 60_000)} min`);
+      console.log(`[demo] Scenario activated. Anchor: ${row.latest_event}, Offset: ${Math.round(demoTimeOffset / 60_000)} min`);
       res.json({ scenarioActive: true, activatedAt: demoActivatedAt.toISOString() });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
