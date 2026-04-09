@@ -121,14 +121,14 @@ export default function CommunicationsLog({
                   <span className="badge bg-blue-100 text-blue-800">
                     {channelLabel(c.channel)}
                   </span>
-                  {c.recipient && <span className="text-gray-500 text-xs">{c.recipient}</span>}
+                  {c.recipient_name && <span className="text-gray-500 text-xs">{c.recipient_name}</span>}
                 </div>
                 <span className="text-xs text-gray-400">
-                  {c.sent_at ? format(new Date(c.sent_at), "dd MMM HH:mm") : "\u2014"}
+                  {c.comms_timestamp ? format(new Date(c.comms_timestamp), "dd MMM HH:mm") : "\u2014"}
                 </span>
               </div>
-              <p className="text-gray-700 text-xs">{c.message}</p>
-              {c.sent_by && <p className="text-gray-400 text-xs mt-0.5">by {c.sent_by}</p>}
+              <p className="text-gray-700 text-xs">{c.summary}</p>
+              {c.direction && <p className="text-gray-400 text-xs mt-0.5">by {c.direction}</p>}
             </div>
           ))}
         </div>

@@ -76,7 +76,7 @@ export default function DMADetail({
   const rootCauseText =
     pumpAssets.length > 0 && trunkMains.length > 0
       ? `Root Cause: Pump station ${pumpAssets[0].asset_id} tripped at ${
-          pumpAssets[0].last_event_time || "02:03"
+          "02:03"
         } \u2192 Trunk Main ${trunkMains[0].asset_id} \u2192 ${dmaCode}. Downstream: ${
           detail?.downstream_dma_count || 3
         } DMAs, ~${detail?.total_properties || "1,400"} properties`

@@ -10,10 +10,6 @@
 import { createApp, server, lakebase, genie } from "@databricks/appkit";
 
 async function setupRoutes(appkit: any) {
-  // ---------------------------------------------------------------------------
-  // Helper: run a query and return rows
-  // ---------------------------------------------------------------------------
-
   async function query(sql: string, params?: any[]): Promise<any[]> {
     try {
       const result = await appkit.lakebase.query(sql, params);
@@ -29,29 +25,22 @@ async function setupRoutes(appkit: any) {
     return rows[0] ?? null;
   }
 
-  // Communications and comms_requests are split across two tables each:
-  // - Delta-synced seed data: communications_log / comms_requests
-  // - App write-back data:    app_communications_log / app_comms_requests
-  // Read queries UNION both; writes go to the app_* tables only.
-
+  // Communications: Delta-synced seed (communications_log) + app writes (app_communications_log)
+  // Actual columns: comms_id, incident_id, comms_timestamp, recipient_role, recipient_name, channel, direction, summary, status
   const COMMS_UNION = `(
-    SELECT incident_id, channel, recipient, message, sent_by, sent_at FROM communications_log
+    SELECT incident_id, channel, recipient_name, summary, direction, comms_timestamp FROM communications_log
     UNION ALL
-    SELECT incident_id, channel, recipient, message, sent_by, sent_at FROM app_communications_log
+    SELECT incident_id, channel, recipient, message AS summary, sent_by AS direction, sent_at AS comms_timestamp FROM app_communications_log
   ) AS all_comms`;
-
-  // ---------------------------------------------------------------------------
-  // Custom Routes
-  // ---------------------------------------------------------------------------
 
   appkit.server.extend((app: any) => {
   // ---- Health -----------------------------------------------------------
-  app.get("/api/health", (_req, res) => {
+  app.get("/api/health", (_req: any, res: any) => {
     res.json({ status: "ok", service: "water-digital-twin", company: "Water Utilities" });
   });
 
   // ---- Incidents --------------------------------------------------------
-  app.get("/api/incidents/active", async (_req, res) => {
+  app.get("/api/incidents/active", async (_req: any, res: any) => {
     try {
       const rows = await query(
         "SELECT * FROM dim_incidents WHERE status = 'active' ORDER BY created_at DESC"
@@ -62,17 +51,16 @@ async function setupRoutes(appkit: any) {
     }
   });
 
-  app.get("/api/incidents/:id", async (req, res) => {
+  app.get("/api/incidents/:id", async (req: any, res: any) => {
     try {
       const { id } = req.params;
       const incident = await queryOne(
-        "SELECT * FROM dim_incidents WHERE incident_id = $1",
-        [id]
+        "SELECT * FROM dim_incidents WHERE incident_id = $1", [id]
       );
       if (!incident) return res.status(404).json({ error: "Incident not found" });
       const [events, comms] = await Promise.all([
-        query("SELECT * FROM incident_events WHERE incident_id = $1 ORDER BY event_time DESC", [id]),
-        query(`SELECT * FROM ${COMMS_UNION} WHERE incident_id = $1 ORDER BY sent_at DESC`, [id]),
+        query("SELECT * FROM incident_events WHERE incident_id = $1 ORDER BY event_timestamp DESC", [id]),
+        query(`SELECT * FROM ${COMMS_UNION} WHERE incident_id = $1 ORDER BY comms_timestamp DESC`, [id]),
       ]);
       res.json({ incident, events, communications: comms });
     } catch (e: any) {
@@ -80,10 +68,10 @@ async function setupRoutes(appkit: any) {
     }
   });
 
-  app.get("/api/incidents/:id/events", async (req, res) => {
+  app.get("/api/incidents/:id/events", async (req: any, res: any) => {
     try {
       const rows = await query(
-        "SELECT * FROM incident_events WHERE incident_id = $1 ORDER BY event_time DESC",
+        "SELECT * FROM incident_events WHERE incident_id = $1 ORDER BY event_timestamp DESC",
         [req.params.id]
       );
       res.json({ events: rows });
@@ -92,26 +80,23 @@ async function setupRoutes(appkit: any) {
     }
   });
 
-  app.get("/api/incidents/:id/handover", async (req, res) => {
+  app.get("/api/incidents/:id/handover", async (req: any, res: any) => {
     try {
       const { id } = req.params;
       const incident = await queryOne(
-        "SELECT * FROM dim_incidents WHERE incident_id = $1",
-        [id]
+        "SELECT * FROM dim_incidents WHERE incident_id = $1", [id]
       );
       if (!incident) return res.status(404).json({ error: "Incident not found" });
-      const [events, comms, outstanding] = await Promise.all([
-        query("SELECT * FROM incident_events WHERE incident_id = $1 ORDER BY event_time ASC", [id]),
-        query(`SELECT * FROM ${COMMS_UNION} WHERE incident_id = $1 ORDER BY sent_at DESC`, [id]),
-        query(
-          "SELECT * FROM incident_events WHERE incident_id = $1 AND status = 'pending' ORDER BY event_time ASC",
-          [id]
-        ),
+      const [events, comms] = await Promise.all([
+        query("SELECT * FROM incident_events WHERE incident_id = $1 ORDER BY event_timestamp ASC", [id]),
+        query(`SELECT * FROM ${COMMS_UNION} WHERE incident_id = $1 ORDER BY comms_timestamp DESC`, [id]),
       ]);
+      // The incident_events table has no "status" column — all events are completed facts.
+      // Outstanding actions come from the playbook, not from events.
       res.json({
         incident,
-        actions_taken: events.filter((e: any) => e.status === "completed"),
-        outstanding_actions: outstanding,
+        actions_taken: events,
+        outstanding_actions: [],
         communications: comms,
       });
     } catch (e: any) {
@@ -120,7 +105,7 @@ async function setupRoutes(appkit: any) {
   });
 
   // ---- DMA --------------------------------------------------------------
-  app.get("/api/dma/status", async (req, res) => {
+  app.get("/api/dma/status", async (req: any, res: any) => {
     try {
       const ragStatus = req.query.rag_status as string | undefined;
       let sql = "SELECT * FROM dma_status";
@@ -137,7 +122,7 @@ async function setupRoutes(appkit: any) {
     }
   });
 
-  app.get("/api/dma/:code/polygons", async (req, res) => {
+  app.get("/api/dma/:code/polygons", async (req: any, res: any) => {
     try {
       const row = await queryOne(
         "SELECT dma_code, dma_name, ST_AsGeoJSON(geom) AS geojson FROM dim_dma WHERE dma_code = $1",
@@ -155,11 +140,10 @@ async function setupRoutes(appkit: any) {
     }
   });
 
-  app.get("/api/dma/:code/detail", async (req, res) => {
+  app.get("/api/dma/:code/detail", async (req: any, res: any) => {
     try {
       const row = await queryOne(
-        "SELECT * FROM dma_summary WHERE dma_code = $1",
-        [req.params.code]
+        "SELECT * FROM dma_summary WHERE dma_code = $1", [req.params.code]
       );
       if (!row) return res.status(404).json({ error: "DMA summary not found" });
       res.json(row);
@@ -168,11 +152,10 @@ async function setupRoutes(appkit: any) {
     }
   });
 
-  app.get("/api/dma/:code/sensors", async (req, res) => {
+  app.get("/api/dma/:code/sensors", async (req: any, res: any) => {
     try {
       const rows = await query(
-        "SELECT * FROM dim_sensor WHERE dma_code = $1 ORDER BY sensor_id",
-        [req.params.code]
+        "SELECT * FROM dim_sensor WHERE dma_code = $1 ORDER BY sensor_id", [req.params.code]
       );
       res.json({ sensors: rows });
     } catch (e: any) {
@@ -180,11 +163,10 @@ async function setupRoutes(appkit: any) {
     }
   });
 
-  app.get("/api/dma/:code/properties", async (req, res) => {
+  app.get("/api/dma/:code/properties", async (req: any, res: any) => {
     try {
       const rows = await query(
-        "SELECT * FROM dim_properties WHERE dma_code = $1 ORDER BY property_id",
-        [req.params.code]
+        "SELECT * FROM dim_properties WHERE dma_code = $1 ORDER BY property_id", [req.params.code]
       );
       res.json({ properties: rows });
     } catch (e: any) {
@@ -192,10 +174,10 @@ async function setupRoutes(appkit: any) {
     }
   });
 
-  app.get("/api/dma/:code/complaints", async (req, res) => {
+  app.get("/api/dma/:code/complaints", async (req: any, res: any) => {
     try {
       const rows = await query(
-        "SELECT * FROM customer_complaints WHERE dma_code = $1 ORDER BY reported_at DESC LIMIT 50",
+        "SELECT * FROM customer_complaints WHERE dma_code = $1 ORDER BY complaint_timestamp DESC LIMIT 50",
         [req.params.code]
       );
       res.json({ complaints: rows });
@@ -204,7 +186,7 @@ async function setupRoutes(appkit: any) {
     }
   });
 
-  app.get("/api/dma/:code/assets", async (req, res) => {
+  app.get("/api/dma/:code/assets", async (req: any, res: any) => {
     try {
       const rows = await query(
         `SELECT a.* FROM dim_assets a
@@ -219,12 +201,12 @@ async function setupRoutes(appkit: any) {
     }
   });
 
-  app.get("/api/dma/:code/rag-history", async (req, res) => {
+  app.get("/api/dma/:code/rag-history", async (req: any, res: any) => {
     try {
       const hours = Math.min(168, Math.max(1, Number(req.query.hours) || 24));
       const since = new Date(Date.now() - hours * 3600_000).toISOString();
       const rows = await query(
-        "SELECT * FROM dma_rag_history WHERE dma_code = $1 AND recorded_at >= $2 ORDER BY recorded_at ASC",
+        "SELECT dma_code, timestamp AS recorded_at, rag_status, avg_pressure, min_pressure FROM dma_rag_history WHERE dma_code = $1 AND timestamp >= $2 ORDER BY timestamp ASC",
         [req.params.code, since]
       );
       res.json({ rag_history: rows });
@@ -234,24 +216,37 @@ async function setupRoutes(appkit: any) {
   });
 
   // ---- Sensors & Telemetry ----------------------------------------------
-  app.get("/api/sensor/:id/telemetry", async (req, res) => {
+  // fact_telemetry columns: sensor_id, sensor_type, dma_code, timestamp, value, unit, quality_flag, anomaly_flag
+  app.get("/api/sensor/:id/telemetry", async (req: any, res: any) => {
     try {
       const hours = Math.min(168, Math.max(1, Number(req.query.hours) || 24));
       const since = new Date(Date.now() - hours * 3600_000).toISOString();
       const rows = await query(
-        "SELECT * FROM fact_telemetry WHERE sensor_id = $1 AND ts >= $2 ORDER BY ts ASC",
+        `SELECT sensor_id, sensor_type, timestamp AS ts, value, unit
+         FROM fact_telemetry WHERE sensor_id = $1 AND timestamp >= $2 ORDER BY timestamp ASC`,
         [req.params.id, since]
       );
-      res.json({ telemetry: rows });
+      // Pivot: the frontend expects { ts, pressure, flow } per row
+      // Group by timestamp, merge pressure + flow values
+      const byTs: Record<string, any> = {};
+      for (const r of rows) {
+        const key = r.ts;
+        if (!byTs[key]) byTs[key] = { ts: key, pressure: null, flow: null };
+        if (r.sensor_type === "pressure") byTs[key].pressure = r.value;
+        else if (r.sensor_type === "flow") byTs[key].flow = r.value;
+      }
+      res.json({ telemetry: Object.values(byTs) });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
   });
 
-  app.get("/api/sensor/:id/anomalies", async (req, res) => {
+  // anomaly_scores columns: sensor_id, timestamp, anomaly_sigma, baseline_value, actual_value, is_anomaly, scoring_method
+  app.get("/api/sensor/:id/anomalies", async (req: any, res: any) => {
     try {
       const rows = await query(
-        "SELECT * FROM anomaly_scores WHERE sensor_id = $1 ORDER BY scored_at DESC LIMIT 100",
+        `SELECT sensor_id, timestamp AS scored_at, anomaly_sigma AS score, baseline_value, actual_value, is_anomaly
+         FROM anomaly_scores WHERE sensor_id = $1 ORDER BY timestamp DESC LIMIT 100`,
         [req.params.id]
       );
       res.json({ anomalies: rows });
@@ -261,7 +256,7 @@ async function setupRoutes(appkit: any) {
   });
 
   // ---- Map / GeoJSON ----------------------------------------------------
-  app.get("/api/map/geojson", async (_req, res) => {
+  app.get("/api/map/geojson", async (_req: any, res: any) => {
     try {
       const rows = await query(
         `SELECT d.dma_code, d.dma_name, ST_AsGeoJSON(d.geom) AS geojson,
@@ -289,7 +284,7 @@ async function setupRoutes(appkit: any) {
     }
   });
 
-  app.get("/api/map/assets/:dmaCode", async (req, res) => {
+  app.get("/api/map/assets/:dmaCode", async (req: any, res: any) => {
     try {
       const rows = await query(
         `SELECT a.asset_id, a.asset_type, a.asset_name,
@@ -303,11 +298,7 @@ async function setupRoutes(appkit: any) {
         const geom = typeof r.geojson === "string" ? JSON.parse(r.geojson) : r.geojson;
         return {
           type: "Feature",
-          properties: {
-            asset_id: r.asset_id,
-            asset_type: r.asset_type,
-            asset_name: r.asset_name,
-          },
+          properties: { asset_id: r.asset_id, asset_type: r.asset_type, asset_name: r.asset_name },
           geometry: geom,
         };
       });
@@ -318,7 +309,7 @@ async function setupRoutes(appkit: any) {
   });
 
   // ---- Playbooks --------------------------------------------------------
-  app.get("/api/playbooks/:type", async (req, res) => {
+  app.get("/api/playbooks/:type", async (req: any, res: any) => {
     try {
       const rows = await query(
         "SELECT * FROM dim_response_playbooks WHERE incident_type = $1 ORDER BY step_order ASC",
@@ -332,7 +323,7 @@ async function setupRoutes(appkit: any) {
   });
 
   // ---- Reservoirs -------------------------------------------------------
-  app.get("/api/reservoirs/:dmaCode", async (req, res) => {
+  app.get("/api/reservoirs/:dmaCode", async (req: any, res: any) => {
     try {
       const rows = await query(
         `SELECT r.* FROM dim_reservoirs r
@@ -347,10 +338,10 @@ async function setupRoutes(appkit: any) {
   });
 
   // ---- Communications ---------------------------------------------------
-  app.get("/api/comms/:incidentId", async (req, res) => {
+  app.get("/api/comms/:incidentId", async (req: any, res: any) => {
     try {
       const rows = await query(
-        `SELECT * FROM ${COMMS_UNION} WHERE incident_id = $1 ORDER BY sent_at DESC`,
+        `SELECT * FROM ${COMMS_UNION} WHERE incident_id = $1 ORDER BY comms_timestamp DESC`,
         [req.params.incidentId]
       );
       res.json({ communications: rows });
@@ -359,7 +350,7 @@ async function setupRoutes(appkit: any) {
     }
   });
 
-  app.post("/api/comms/:incidentId", async (req, res) => {
+  app.post("/api/comms/:incidentId", async (req: any, res: any) => {
     try {
       const { incidentId } = req.params;
       const { channel, recipient, message, sent_by = "operator" } = req.body;
@@ -375,7 +366,7 @@ async function setupRoutes(appkit: any) {
   });
 
   // ---- Playbook Actions (write-back) ------------------------------------
-  app.post("/api/playbook-actions/:incidentId", async (req, res) => {
+  app.post("/api/playbook-actions/:incidentId", async (req: any, res: any) => {
     try {
       const { incidentId } = req.params;
       const actions = req.body as Array<{ action_id: string; decision: string; note?: string }>;
@@ -393,7 +384,7 @@ async function setupRoutes(appkit: any) {
   });
 
   // ---- Proactive Comms Request ------------------------------------------
-  app.post("/api/comms-request/:incidentId", async (req, res) => {
+  app.post("/api/comms-request/:incidentId", async (req: any, res: any) => {
     try {
       const { incidentId } = req.params;
       const { channel, message_template, target_audience } = req.body;
@@ -409,12 +400,11 @@ async function setupRoutes(appkit: any) {
   });
 
   // ---- Regulatory -------------------------------------------------------
-  app.get("/api/regulatory/:incidentId", async (req, res) => {
+  app.get("/api/regulatory/:incidentId", async (req: any, res: any) => {
     try {
       const { incidentId } = req.params;
       const incident = await queryOne(
-        "SELECT * FROM dim_incidents WHERE incident_id = $1",
-        [incidentId]
+        "SELECT * FROM dim_incidents WHERE incident_id = $1", [incidentId]
       );
       if (!incident) return res.status(404).json({ error: "Incident not found" });
 
@@ -428,15 +418,13 @@ async function setupRoutes(appkit: any) {
       );
 
       const totalProperties = properties.reduce(
-        (sum: number, p: any) => sum + Number(p.count || 0),
-        0
+        (sum: number, p: any) => sum + Number(p.count || 0), 0
       );
 
       let hoursElapsed = 0;
-      const createdAt = incident.created_at;
+      const createdAt = incident.created_at || incident.start_timestamp;
       if (createdAt) {
-        const start = new Date(createdAt);
-        hoursElapsed = (Date.now() - start.getTime()) / 3_600_000;
+        hoursElapsed = (Date.now() - new Date(createdAt).getTime()) / 3_600_000;
       }
 
       const penaltyHours = Math.max(0, hoursElapsed - 3);
@@ -449,26 +437,10 @@ async function setupRoutes(appkit: any) {
         total_properties: totalProperties,
         hours_elapsed: Math.round(hoursElapsed * 100) / 100,
         deadlines: {
-          dwi_verbal: {
-            label: "DWI Verbal Notification",
-            hours: 1,
-            status: hoursElapsed >= 1 ? "DONE" : "PENDING",
-          },
-          dwi_written: {
-            label: "DWI Written Report",
-            hours: 24,
-            status: hoursElapsed >= 24 ? "DONE" : "DUE",
-          },
-          ofwat_3h: {
-            label: "Ofwat 3h Threshold",
-            hours: 3,
-            status: hoursElapsed >= 3 ? "BREACHED" : "OK",
-          },
-          ofwat_12h: {
-            label: "Ofwat 12h Threshold",
-            hours: 12,
-            status: hoursElapsed >= 12 ? "BREACHED" : "OK",
-          },
+          dwi_verbal:  { label: "DWI Verbal Notification", hours: 1,  status: hoursElapsed >= 1  ? "DONE" : "PENDING" },
+          dwi_written: { label: "DWI Written Report",      hours: 24, status: hoursElapsed >= 24 ? "DONE" : "DUE" },
+          ofwat_3h:    { label: "Ofwat 3h Threshold",      hours: 3,  status: hoursElapsed >= 3  ? "BREACHED" : "OK" },
+          ofwat_12h:   { label: "Ofwat 12h Threshold",     hours: 12, status: hoursElapsed >= 12 ? "BREACHED" : "OK" },
         },
         penalty_calculation: {
           formula: "properties x (hours - 3) x GBP 580",
@@ -494,7 +466,6 @@ const plugins: any[] = [
   lakebase(),
 ];
 
-// Only enable Genie if a space ID is configured
 if (process.env.DATABRICKS_GENIE_SPACE_ID) {
   plugins.push(genie());
 }

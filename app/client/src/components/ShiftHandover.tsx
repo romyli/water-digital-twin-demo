@@ -102,9 +102,9 @@ export default function ShiftHandover({ incident }: { incident: any }) {
                 <div>
                   <span className="font-medium">{a.event_type || "Action"}</span>
                   <span className="text-gray-500 ml-2">{a.description}</span>
-                  {a.event_time && (
+                  {a.event_timestamp && (
                     <span className="text-gray-400 ml-2 text-xs">
-                      {format(new Date(a.event_time), "HH:mm")}
+                      {format(new Date(a.event_timestamp), "HH:mm")}
                     </span>
                   )}
                 </div>

@@ -90,33 +90,19 @@ export default function AlarmLog({ activeIncident }: { activeIncident: any }) {
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Type</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Source</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Description</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredEvents.map((evt: any, i: number) => (
                 <tr key={i} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
-                    {evt.event_time ? format(new Date(evt.event_time), "dd MMM HH:mm:ss") : "\u2014"}
+                    {evt.event_timestamp ? format(new Date(evt.event_timestamp), "dd MMM HH:mm:ss") : "\u2014"}
                   </td>
                   <td className="px-4 py-3">
                     <RAGBadge status={eventTypeColor(evt.event_type)} label={evt.event_type || "\u2014"} />
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{evt.source || evt.sensor_id || "\u2014"}</td>
+                  <td className="px-4 py-3 text-gray-600">{evt.actor || "\u2014"}</td>
                   <td className="px-4 py-3 text-gray-700">{evt.description || "\u2014"}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`text-xs font-medium capitalize ${
-                        evt.status === "completed"
-                          ? "text-green-600"
-                          : evt.status === "pending"
-                          ? "text-amber-600"
-                          : "text-gray-500"
-                      }`}
-                    >
-                      {evt.status || "\u2014"}
-                    </span>
-                  </td>
                 </tr>
               ))}
             </tbody>

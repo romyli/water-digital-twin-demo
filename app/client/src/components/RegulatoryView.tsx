@@ -46,7 +46,7 @@ export default function RegulatoryView({ incident }: { incident: any }) {
       }),
   });
 
-  const { elapsed } = useCountdown(incident?.created_at);
+  const { elapsed } = useCountdown(incident?.created_at || incident?.start_timestamp);
 
   if (isLoading) return <LoadingSpinner message="Loading regulatory data..." />;
   if (error)
@@ -100,7 +100,7 @@ export default function RegulatoryView({ incident }: { incident: any }) {
           <div>
             <h2 className="panel-title">Duration of Interruption</h2>
             <p className="text-sm text-gray-500">
-              Started: {incident?.created_at ? format(new Date(incident.created_at), "dd MMM yyyy HH:mm") : "\u2014"}
+              Started: {(incident?.created_at || incident?.start_timestamp) ? format(new Date(incident.created_at || incident.start_timestamp), "dd MMM yyyy HH:mm") : "\u2014"}
             </p>
           </div>
           <div className="text-right">
@@ -206,7 +206,7 @@ export default function RegulatoryView({ incident }: { incident: any }) {
             <div className="absolute -left-[21px] w-3 h-3 rounded-full bg-green-500 border-2 border-white" />
             <p className="text-sm font-medium">Incident detected</p>
             <p className="text-xs text-gray-400">
-              {incident?.created_at ? format(new Date(incident.created_at), "dd MMM HH:mm:ss") : "\u2014"}
+              {(incident?.created_at || incident?.start_timestamp) ? format(new Date(incident.created_at || incident.start_timestamp), "dd MMM HH:mm:ss") : "\u2014"}
             </p>
           </div>
           {Object.entries(deadlines).map(([key, d]: [string, any]) =>
