@@ -250,7 +250,41 @@ print("App write-back tables ready.")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 5. Verification
+# MAGIC ## 5. Grant App Service Principal Access
+# MAGIC
+# MAGIC The Databricks App runs as a service principal that needs read/write access
+# MAGIC to all synced and app write-back tables. The SP gets `CAN_CONNECT_AND_CREATE`
+# MAGIC from the app resource config, but needs explicit table-level grants.
+
+# COMMAND ----------
+
+# Grant the app SP access to all tables
+# The SP subject is its application (client) ID from the app config
+APP_SP_CLIENT_ID = "a6e153ab-211a-47e2-be5b-09754cdd220e"
+
+try:
+    cur.execute("CREATE EXTENSION IF NOT EXISTS databricks_auth")
+
+    # Create role for the SP if not exists
+    cur.execute(f"SELECT databricks_create_role('{APP_SP_CLIENT_ID}', 'SERVICE_PRINCIPAL')")
+    print(f"Created/ensured role for SP {APP_SP_CLIENT_ID}")
+
+    # Grant connect
+    cur.execute(f'GRANT CONNECT ON DATABASE "databricks_postgres" TO "{APP_SP_CLIENT_ID}"')
+
+    # Grant on public schema (where all tables live)
+    cur.execute(f'GRANT USAGE ON SCHEMA public TO "{APP_SP_CLIENT_ID}"')
+    cur.execute(f'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{APP_SP_CLIENT_ID}"')
+    cur.execute(f'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "{APP_SP_CLIENT_ID}"')
+
+    print(f"Granted full table access to app SP on public schema")
+except Exception as e:
+    print(f"Permission grant error (may be OK if already granted): {e}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 6. Verification
 
 # COMMAND ----------
 
