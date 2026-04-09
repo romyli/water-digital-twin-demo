@@ -194,7 +194,8 @@ async function setupRoutes(appkit: any) {
     try {
       // Try real-time window first; fall back to most recent events if demo data is static
       const hours = Math.min(168, Math.max(1, Number(req.query.hours) || 24));
-      const since = new Date(Date.now() - hours * 3600_000).toISOString();
+      const now = demoScenarioActive && demoTimeOffset ? Date.now() - demoTimeOffset : Date.now();
+      const since = new Date(now - hours * 3600_000).toISOString();
       let rows = await query(
         "SELECT * FROM incident_events WHERE event_timestamp >= $1 ORDER BY event_timestamp DESC LIMIT 200",
         [since]
@@ -417,7 +418,8 @@ async function setupRoutes(appkit: any) {
   app.get("/api/dma/:code/rag-history", async (req: any, res: any) => {
     try {
       const hours = Math.min(168, Math.max(1, Number(req.query.hours) || 24));
-      const since = new Date(Date.now() - hours * 3600_000).toISOString();
+      const now = demoScenarioActive && demoTimeOffset ? Date.now() - demoTimeOffset : Date.now();
+      const since = new Date(now - hours * 3600_000).toISOString();
       let rows = await query(
         "SELECT dma_code, timestamp AS recorded_at, rag_status, avg_pressure, min_pressure FROM dma_rag_history WHERE dma_code = $1 AND timestamp >= $2 ORDER BY timestamp ASC",
         [req.params.code, since]
@@ -444,7 +446,9 @@ async function setupRoutes(appkit: any) {
   app.get("/api/sensor/:id/telemetry", async (req: any, res: any) => {
     try {
       const hours = Math.min(168, Math.max(1, Number(req.query.hours) || 24));
-      const since = new Date(Date.now() - hours * 3600_000).toISOString();
+      // When demo is active, shift the time window back so it hits the original data range
+      const now = demoScenarioActive && demoTimeOffset ? Date.now() - demoTimeOffset : Date.now();
+      const since = new Date(now - hours * 3600_000).toISOString();
       let rows = await query(
         `SELECT sensor_id, sensor_type, timestamp AS ts, value
          FROM fact_telemetry WHERE sensor_id = $1 AND timestamp >= $2 ORDER BY timestamp ASC`,
@@ -587,7 +591,8 @@ async function setupRoutes(appkit: any) {
   app.get("/api/map/complaints", async (_req: any, res: any) => {
     if (!demoScenarioActive) return res.json({ type: "FeatureCollection", features: [] });
     try {
-      const since = new Date(Date.now() - 7 * 24 * 3600_000).toISOString();
+      const now = demoScenarioActive && demoTimeOffset ? Date.now() - demoTimeOffset : Date.now();
+      const since = new Date(now - 7 * 24 * 3600_000).toISOString();
       const rows = await query(
         `SELECT c.complaint_type, c.complaint_timestamp, c.property_id, c.dma_code,
                 p.latitude, p.longitude
