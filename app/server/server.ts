@@ -70,12 +70,19 @@ async function setupRoutes(appkit: any) {
 
   app.get("/api/incidents/events/recent", async (req: any, res: any) => {
     try {
+      // Try real-time window first; fall back to most recent events if demo data is static
       const hours = Math.min(168, Math.max(1, Number(req.query.hours) || 24));
       const since = new Date(Date.now() - hours * 3600_000).toISOString();
-      const rows = await query(
+      let rows = await query(
         "SELECT * FROM incident_events WHERE event_timestamp >= $1 ORDER BY event_timestamp DESC LIMIT 200",
         [since]
       );
+      if (rows.length === 0) {
+        // Static demo data — return most recent events regardless of time window
+        rows = await query(
+          "SELECT * FROM incident_events ORDER BY event_timestamp DESC LIMIT 200"
+        );
+      }
       res.json({ events: rows });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
