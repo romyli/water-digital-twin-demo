@@ -367,7 +367,7 @@ def compute_dma_status():
             F.count("property_id").alias("property_count"),
             F.sum(
                 F.when(
-                    F.col("property_type").isin("hospital", "school", "dialysis_home"),
+                    F.col("property_type").isin("hospital", "school", "dialysis_home", "care_home"),
                     F.lit(1)
                 ).otherwise(F.lit(0))
             ).cast(IntegerType()).alias("sensitive_premises_count")
@@ -615,6 +615,67 @@ demo_dma_01_summary = spark.sql(f"""
     WHERE dma_code = 'DEMO_DMA_01'
 """)
 display(demo_dma_01_summary)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Catalog Metadata — Table & Column Comments
+# MAGIC
+# MAGIC Apply comments for Genie Space accuracy.
+
+# COMMAND ----------
+
+# DBTITLE 1,Table & Column Comments — anomaly_scores
+spark.sql(f"""COMMENT ON TABLE {CATALOG}.gold.anomaly_scores IS
+  'Per-sensor statistical anomaly scores computed against a rolling 7-day same-time-of-day baseline. anomaly_sigma represents standard deviations from the baseline — readings above 2.5 sigma are flagged as anomalies. Join to dim_sensor on sensor_id for DMA and sensor type context.'""")
+
+for sql in [
+    f"ALTER TABLE {CATALOG}.gold.anomaly_scores ALTER COLUMN sensor_id COMMENT 'Sensor identifier. Join to dim_sensor for DMA code, sensor type, and location.'",
+    f"ALTER TABLE {CATALOG}.gold.anomaly_scores ALTER COLUMN timestamp COMMENT 'Timestamp of the scored telemetry reading (UTC).'",
+    f"ALTER TABLE {CATALOG}.gold.anomaly_scores ALTER COLUMN anomaly_sigma COMMENT 'Anomaly score in standard deviations (sigma) from the rolling 7-day same-time-of-day baseline. NOT a raw score or percentage. Values above 2.5 sigma are flagged as anomalies; above 3.0 sigma warrants investigation.'",
+    f"ALTER TABLE {CATALOG}.gold.anomaly_scores ALTER COLUMN baseline_value COMMENT 'Expected baseline value from the rolling 7-day window. Units: metres head for pressure, litres per second for flow.'",
+    f"ALTER TABLE {CATALOG}.gold.anomaly_scores ALTER COLUMN actual_value COMMENT 'Actual observed sensor reading. Units: metres head (m) for pressure, litres per second (l/s) for flow.'",
+    f"ALTER TABLE {CATALOG}.gold.anomaly_scores ALTER COLUMN is_anomaly COMMENT 'Boolean: TRUE if anomaly_sigma exceeds the 2.5 sigma threshold.'",
+    f"ALTER TABLE {CATALOG}.gold.anomaly_scores ALTER COLUMN scoring_method COMMENT 'Algorithm used to compute the anomaly score. Currently always statistical (rolling 7-day baseline).'",
+]:
+    spark.sql(sql)
+print("anomaly_scores: table + column comments applied")
+
+# COMMAND ----------
+
+# DBTITLE 1,Table & Column Comments — dma_rag_history
+spark.sql(f"""COMMENT ON TABLE {CATALOG}.gold.dma_rag_history IS
+  'Historical RAG status timeline for each DMA at 15-minute intervals. Records average and minimum pressure along with the computed RAG status at each interval. Use this table for pressure trend analysis and to reconstruct the timeline of an incident.'""")
+
+for sql in [
+    f"ALTER TABLE {CATALOG}.gold.dma_rag_history ALTER COLUMN dma_code COMMENT 'District Metered Area identifier. Foreign key to dim_dma.dma_code.'",
+    f"ALTER TABLE {CATALOG}.gold.dma_rag_history ALTER COLUMN timestamp COMMENT 'Timestamp of the 15-minute interval (UTC).'",
+    f"ALTER TABLE {CATALOG}.gold.dma_rag_history ALTER COLUMN rag_status COMMENT 'RAG classification at this interval: RED (min pressure < 15 m), AMBER (min pressure < 25 m), or GREEN (normal).'",
+    f"ALTER TABLE {CATALOG}.gold.dma_rag_history ALTER COLUMN avg_pressure COMMENT 'Average pressure across all pressure sensors in the DMA at this interval, in metres head (m).'",
+    f"ALTER TABLE {CATALOG}.gold.dma_rag_history ALTER COLUMN min_pressure COMMENT 'Minimum pressure in the DMA at this interval, in metres head (m). Determines the RAG status.'",
+]:
+    spark.sql(sql)
+print("dma_rag_history: table + column comments applied")
+
+# COMMAND ----------
+
+# DBTITLE 1,Table & Column Comments — dma_status
+spark.sql(f"""COMMENT ON TABLE {CATALOG}.gold.dma_status IS
+  'Current RAG status snapshot for every DMA in the network. One row per DMA with latest pressure readings, sensor/property/sensitive-premises counts, and active incident flag. RED = significant pressure drop; AMBER = pressure trending below normal; GREEN = operating normally.'""")
+
+for sql in [
+    f"ALTER TABLE {CATALOG}.gold.dma_status ALTER COLUMN dma_code COMMENT 'District Metered Area identifier. One row per DMA.'",
+    f"ALTER TABLE {CATALOG}.gold.dma_status ALTER COLUMN rag_status COMMENT 'Current RED/AMBER/GREEN health classification based on min pressure thresholds.'",
+    f"ALTER TABLE {CATALOG}.gold.dma_status ALTER COLUMN avg_pressure COMMENT 'Average pressure across all pressure sensors in the DMA in metres head (m).'",
+    f"ALTER TABLE {CATALOG}.gold.dma_status ALTER COLUMN min_pressure COMMENT 'Minimum pressure in the DMA in metres head (m). Drives the RAG status.'",
+    f"ALTER TABLE {CATALOG}.gold.dma_status ALTER COLUMN sensor_count COMMENT 'Number of active sensors deployed in this DMA.'",
+    f"ALTER TABLE {CATALOG}.gold.dma_status ALTER COLUMN property_count COMMENT 'Total number of properties in this DMA.'",
+    f"ALTER TABLE {CATALOG}.gold.dma_status ALTER COLUMN sensitive_premises_count COMMENT 'Count of sensitive premises (hospitals, schools, care homes, dialysis homes) in this DMA.'",
+    f"ALTER TABLE {CATALOG}.gold.dma_status ALTER COLUMN has_active_incident COMMENT 'Boolean: TRUE if there is a currently active incident affecting this DMA.'",
+    f"ALTER TABLE {CATALOG}.gold.dma_status ALTER COLUMN last_updated COMMENT 'Timestamp when this status row was last computed (UTC).'",
+]:
+    spark.sql(sql)
+print("dma_status: table + column comments applied")
 
 # COMMAND ----------
 

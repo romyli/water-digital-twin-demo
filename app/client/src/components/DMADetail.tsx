@@ -171,6 +171,8 @@ export default function DMADetail({
     if (activeIncident) {
       if (asset.asset_type === "pump_station" && incidentType.includes("pump")) return "RED";
       if (asset.asset_type === "trunk_main") return "AMBER";
+      // Valves and other downstream assets are impacted during an incident
+      if (asset.asset_type === "valve" || asset.asset_type === "meter") return "AMBER";
     }
     return existing || "GREEN";
   };
@@ -262,7 +264,7 @@ export default function DMADetail({
             </div>
             <div className="bg-gray-50 rounded-lg p-3">
               <p className="text-gray-500 text-xs">Properties</p>
-              <p className="font-semibold text-lg tabular-nums">{detail?.property_count ?? "—"}</p>
+              <p className="font-semibold text-lg tabular-nums">{detail?.total_properties ?? detail?.property_count ?? "—"}</p>
             </div>
           </div>
 

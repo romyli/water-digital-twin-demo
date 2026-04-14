@@ -10,6 +10,7 @@ import MapView from "./components/MapView";
 import AlarmLog from "./components/AlarmLog";
 import RegulatoryView from "./components/RegulatoryView";
 import GeniePage from "./pages/GeniePage";
+import GenieNativePage from "./pages/GenieNativePage";
 
 function NetworkNormal() {
   return (
@@ -133,6 +134,9 @@ function NavBar({ hasIncident, timeOffset }: { hasIncident: boolean; timeOffset:
           <NavLink to="/genie" className={linkClass}>
             Ask Genie
           </NavLink>
+          <NavLink to="/genie-native" className={linkClass}>
+            Genie+
+          </NavLink>
         </nav>
         <div className="flex items-center gap-4">
           <ConnectionStatus />
@@ -158,7 +162,7 @@ function KeyboardShortcuts() {
       )
         return;
 
-      const routes = ["/", "/map", "/incidents", "/regulatory", "/genie"];
+      const routes = ["/", "/map", "/incidents", "/regulatory", "/genie", "/genie-native"];
       const key = e.key;
       if (key >= "1" && key <= "5") {
         e.preventDefault();
@@ -325,6 +329,7 @@ export default function App() {
               }
             />
             <Route path="/genie" element={<GeniePage />} />
+            <Route path="/genie-native" element={<GenieNativePage />} />
           </Routes>
         </main>
       </div>

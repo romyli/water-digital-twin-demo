@@ -198,6 +198,7 @@ export default function AssetDetail({
               {anomalyChartTime && (
                 <ReferenceLine
                   x={anomalyChartTime}
+                  yAxisId="left"
                   stroke="#DC2626"
                   strokeDasharray="5 5"
                   strokeWidth={1.5}
@@ -209,6 +210,7 @@ export default function AssetDetail({
               {complaintChartTime && (
                 <ReferenceLine
                   x={complaintChartTime}
+                  yAxisId="left"
                   stroke="#F59E0B"
                   strokeDasharray="5 5"
                   strokeWidth={1.5}

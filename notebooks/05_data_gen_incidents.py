@@ -65,6 +65,9 @@ incident_records.append({
     "total_properties_affected": 441,
     "sensitive_premises_affected": True,
     "priority_score": 92,
+    "escalation_risk": "High — reservoir at 43% with morning demand surge approaching. If pump not restored by 07:30, recommend Ofwat pre-notification and tanker deployment to sensitive premises.",
+    "trajectory": "Pressure stabilising at 5-12m head but not recovering. Reservoir draw-down rate 0.694 ML/hr will accelerate after 06:00 morning demand surge. Without pump restoration, full DMA supply loss expected by ~08:30.",
+    "first_complaint_time": "2026-04-07 03:05:00",
     "assigned_team": "Network Operations",
     "sop_reference": "SOP-WN-042",
     "created_at": "2026-04-07 02:18:00",
@@ -91,6 +94,9 @@ historical_incidents = [
         "total_properties_affected": 0,
         "sensitive_premises_affected": False,
         "priority_score": 25,
+        "escalation_risk": "Resolved — auto-restart successful, no customer impact.",
+        "trajectory": "Brief pressure dip recovered within 12 minutes of auto-restart.",
+        "first_complaint_time": None,
         "assigned_team": "Network Operations",
         "sop_reference": "SOP-WN-042",
         "created_at": "2025-11-03 14:22:00",
@@ -115,6 +121,9 @@ historical_incidents = [
         "total_properties_affected": 120,
         "sensitive_premises_affected": False,
         "priority_score": 55,
+        "escalation_risk": "Resolved — leak isolated and repaired within 4 hours.",
+        "trajectory": "Pressure reduced to 30m during repair, recovered to normal within 30 mins of completion.",
+        "first_complaint_time": "2026-01-15 09:20:00",
         "assigned_team": "Repair & Maintenance",
         "sop_reference": "SOP-WN-018",
         "created_at": "2026-01-15 08:50:00",
@@ -138,6 +147,9 @@ historical_incidents = [
         "total_properties_affected": 85,
         "sensitive_premises_affected": False,
         "priority_score": 48,
+        "escalation_risk": "Resolved — backup generator maintained supply during main power restoration.",
+        "trajectory": "Brief supply disruption, backup generator activated within 5 mins. Full power restored in 45 mins.",
+        "first_complaint_time": "2025-10-20 23:40:00",
         "assigned_team": "Network Operations",
         "sop_reference": "SOP-WN-042",
         "created_at": "2025-10-20 23:18:00",
@@ -161,6 +173,9 @@ historical_incidents = [
         "total_properties_affected": 320,
         "sensitive_premises_affected": True,
         "priority_score": 85,
+        "escalation_risk": "Resolved — major burst required 8-hour repair. DWI and Ofwat both notified.",
+        "trajectory": "Surface flooding contained within 2 hours. Pressure restored progressively as isolation valves reopened.",
+        "first_complaint_time": "2025-12-08 07:00:00",
         "assigned_team": "Emergency Response",
         "sop_reference": "SOP-WN-018",
         "created_at": "2025-12-08 06:35:00",
@@ -184,6 +199,9 @@ historical_incidents = [
         "total_properties_affected": 65,
         "sensitive_premises_affected": False,
         "priority_score": 42,
+        "escalation_risk": "Resolved — PRV replaced within 3 hours. Overpressure contained by manual override.",
+        "trajectory": "Downstream pressure spiked to 75m, capped by manual override at 60m. Normal after valve replacement.",
+        "first_complaint_time": None,
         "assigned_team": "Repair & Maintenance",
         "sop_reference": "SOP-WN-031",
         "created_at": "2026-02-12 11:05:00",
@@ -207,6 +225,9 @@ historical_incidents = [
         "total_properties_affected": 40,
         "sensitive_premises_affected": False,
         "priority_score": 30,
+        "escalation_risk": "Resolved — manual restart successful within 25 minutes.",
+        "trajectory": "Pressure dipped to 28m during trip, recovered to normal within 10 minutes of restart.",
+        "first_complaint_time": None,
         "assigned_team": "Network Operations",
         "sop_reference": "SOP-WN-042",
         "created_at": "2026-03-05 07:48:00",
@@ -230,6 +251,9 @@ historical_incidents = [
         "total_properties_affected": 150,
         "sensitive_premises_affected": False,
         "priority_score": 52,
+        "escalation_risk": "Resolved — joint failure repaired overnight. DWI notified as precaution.",
+        "trajectory": "Gradual pressure loss detected by anomaly engine. Stabilised at 32m during repair, full recovery by 05:00.",
+        "first_complaint_time": "2026-03-19 21:15:00",
         "assigned_team": "Repair & Maintenance",
         "sop_reference": "SOP-WN-018",
         "created_at": "2026-03-19 20:10:00",
@@ -587,6 +611,129 @@ print(f"Wrote {df_handovers.count()} rows to {CATALOG}.gold.shift_handovers")
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## Outstanding Actions
+
+# COMMAND ----------
+
+# DBTITLE 1,Generate & Write Outstanding Actions
+
+# These are pending tasks for the incoming shift — the things that still need doing.
+# Without this table, the Shift Handover "Outstanding Actions" section is always empty.
+
+outstanding_actions = [
+    {
+        "action_id": "ACT-2026-0407-001",
+        "incident_id": "INC-2026-0407-001",
+        "action_description": "Chase replacement bearing assembly delivery for DEMO_PUMP_01 — supplier confirmed dispatch, expected arrival 07:00",
+        "priority": "critical",
+        "assigned_to": "OP_DAY_01",
+        "assigned_role": "Day Shift Operator",
+        "due_by": "2026-04-07 07:30:00",
+        "status": "pending",
+        "created_at": "2026-04-07 05:30:00",
+        "created_by": "OP_NIGHT_01",
+        "notes": "Supplier: Grundfos UK, order ref GRF-2026-04071. Contact: 0800 123 4567",
+    },
+    {
+        "action_id": "ACT-2026-0407-002",
+        "incident_id": "INC-2026-0407-001",
+        "action_description": "Pre-position emergency water tankers at St Mary's Primary and Crystal Palace Academy if pump not restored by 07:30",
+        "priority": "high",
+        "assigned_to": "OP_DAY_01",
+        "assigned_role": "Day Shift Operator",
+        "due_by": "2026-04-07 07:30:00",
+        "status": "pending",
+        "created_at": "2026-04-07 05:30:00",
+        "created_by": "OP_NIGHT_01",
+        "notes": "2 x 10,000L tankers available at Croydon depot. Schools open at 08:30.",
+    },
+    {
+        "action_id": "ACT-2026-0407-003",
+        "incident_id": "INC-2026-0407-001",
+        "action_description": "Evaluate opening DEMO_VALVE_01 and DEMO_VALVE_02 to allow supplementary flow from adjacent trunk mains",
+        "priority": "high",
+        "assigned_to": "OP_DAY_01",
+        "assigned_role": "Day Shift Operator",
+        "due_by": "2026-04-07 07:00:00",
+        "status": "pending",
+        "created_at": "2026-04-07 05:30:00",
+        "created_by": "OP_NIGHT_01",
+        "notes": "Risk: may reduce pressure in DEMO_DMA_02/03 further. Model impact before opening.",
+    },
+    {
+        "action_id": "ACT-2026-0407-004",
+        "incident_id": "INC-2026-0407-001",
+        "action_description": "Send 4-hourly DWI update (ref: DWI-NOT-2026-0407-001) — next update due 08:10",
+        "priority": "high",
+        "assigned_to": "OP_DAY_01",
+        "assigned_role": "Day Shift Operator",
+        "due_by": "2026-04-07 08:10:00",
+        "status": "pending",
+        "created_at": "2026-04-07 05:30:00",
+        "created_by": "OP_NIGHT_01",
+        "notes": "DWI Duty Officer acknowledged initial notification. Include reservoir levels and ETA for repair.",
+    },
+    {
+        "action_id": "ACT-2026-0407-005",
+        "incident_id": "INC-2026-0407-001",
+        "action_description": "Brief Head of Operations at 08:00 daily standup on incident status and resource requirements",
+        "priority": "medium",
+        "assigned_to": "OP_DAY_01",
+        "assigned_role": "Day Shift Operator",
+        "due_by": "2026-04-07 08:00:00",
+        "status": "pending",
+        "created_at": "2026-04-07 05:30:00",
+        "created_by": "OP_NIGHT_01",
+        "notes": "Include: customer impact count, reservoir depletion timeline, crew status, parts ETA.",
+    },
+    {
+        "action_id": "ACT-2026-0407-006",
+        "incident_id": "INC-2026-0407-001",
+        "action_description": "Monitor DEMO_SR_01 reservoir level — currently at 43%, projected depletion ~08:30 if pump not restored",
+        "priority": "critical",
+        "assigned_to": "OP_DAY_01",
+        "assigned_role": "Day Shift Operator",
+        "due_by": "2026-04-07 08:30:00",
+        "status": "in_progress",
+        "created_at": "2026-04-07 05:30:00",
+        "created_by": "OP_NIGHT_01",
+        "notes": "Capacity 5.0 ML, current volume 2.15 ML, demand rate 0.694 ML/hr. Morning surge will accelerate.",
+    },
+    {
+        "action_id": "ACT-2026-0407-007",
+        "incident_id": "INC-2026-0407-001",
+        "action_description": "Contact 3 dialysis-dependent homes to confirm alternative water arrangements are in place",
+        "priority": "high",
+        "assigned_to": "COMMS_TEAM",
+        "assigned_role": "Customer Communications",
+        "due_by": "2026-04-07 07:00:00",
+        "status": "pending",
+        "created_at": "2026-04-07 05:30:00",
+        "created_by": "OP_NIGHT_01",
+        "notes": "Dialysis patients need guaranteed supply. Coordinate with local NHS trust if needed.",
+    },
+    {
+        "action_id": "ACT-2026-0407-008",
+        "incident_id": "INC-2026-0407-001",
+        "action_description": "Prepare Ofwat 12-hour escalation report if incident not resolved by 14:03",
+        "priority": "medium",
+        "assigned_to": "OP_DAY_01",
+        "assigned_role": "Day Shift Operator",
+        "due_by": "2026-04-07 13:00:00",
+        "status": "pending",
+        "created_at": "2026-04-07 05:30:00",
+        "created_by": "OP_NIGHT_01",
+        "notes": "Ofwat 12-hour threshold at 14:03 (incident start + 12h). Draft report in advance.",
+    },
+]
+
+df_actions = spark.createDataFrame(pd.DataFrame(outstanding_actions))
+df_actions.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{CATALOG}.gold.incident_outstanding_actions")
+print(f"Wrote {df_actions.count()} outstanding action records to {CATALOG}.gold.incident_outstanding_actions")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## Comms Requests
 
 # COMMAND ----------
@@ -735,6 +882,282 @@ print(f"Wrote {df_regulatory.count()} rows to {CATALOG}.gold.regulatory_notifica
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## Regulatory Rules & Config
+
+# COMMAND ----------
+
+# DBTITLE 1,Generate & Write Regulatory Rules
+
+# Centralises all hardcoded business rules so the app can read them from a table
+# instead of embedding magic numbers in frontend code.
+
+regulatory_rules = [
+    {
+        "rule_id": "OFWAT_PENALTY_RATE",
+        "category": "penalty",
+        "rule_name": "Ofwat Supply Interruption Penalty Rate",
+        "description": "Penalty per property per hour for supply interruptions exceeding the grace period",
+        "value_numeric": 580.0,
+        "value_text": None,
+        "unit": "GBP/property/hour",
+        "effective_from": "2025-04-01",
+        "effective_to": None,
+        "source": "Ofwat PR24 Final Determination",
+    },
+    {
+        "rule_id": "OFWAT_GRACE_PERIOD",
+        "category": "penalty",
+        "rule_name": "Ofwat Significant Interruption Threshold",
+        "description": "Hours before supply interruption is classified as significant and penalties apply",
+        "value_numeric": 3.0,
+        "value_text": None,
+        "unit": "hours",
+        "effective_from": "2025-04-01",
+        "effective_to": None,
+        "source": "Ofwat PR24 Final Determination",
+    },
+    {
+        "rule_id": "DWI_VERBAL_DEADLINE",
+        "category": "regulatory_deadline",
+        "rule_name": "DWI Verbal Notification Deadline",
+        "description": "Hours after incident start by which DWI must be verbally notified",
+        "value_numeric": 1.0,
+        "value_text": None,
+        "unit": "hours",
+        "effective_from": "2020-01-01",
+        "effective_to": None,
+        "source": "DWI Regulation 35 Reporting Requirements",
+    },
+    {
+        "rule_id": "DWI_WRITTEN_DEADLINE",
+        "category": "regulatory_deadline",
+        "rule_name": "DWI Written Report Deadline",
+        "description": "Hours after incident start by which a formal written report must be submitted to DWI",
+        "value_numeric": 24.0,
+        "value_text": None,
+        "unit": "hours",
+        "effective_from": "2020-01-01",
+        "effective_to": None,
+        "source": "DWI Regulation 35 Reporting Requirements",
+    },
+    {
+        "rule_id": "OFWAT_ESCALATION_THRESHOLD",
+        "category": "regulatory_deadline",
+        "rule_name": "Ofwat Escalation Threshold",
+        "description": "Hours after incident start triggering the second Ofwat reporting threshold",
+        "value_numeric": 12.0,
+        "value_text": None,
+        "unit": "hours",
+        "effective_from": "2025-04-01",
+        "effective_to": None,
+        "source": "Ofwat PR24 Final Determination",
+    },
+    {
+        "rule_id": "PRESSURE_RED_THRESHOLD",
+        "category": "threshold",
+        "rule_name": "Pressure RED Threshold",
+        "description": "Pressure (metres head) below which a sensor is flagged RED",
+        "value_numeric": 15.0,
+        "value_text": None,
+        "unit": "m",
+        "effective_from": "2024-01-01",
+        "effective_to": None,
+        "source": "Internal SOP-WN-001",
+    },
+    {
+        "rule_id": "PRESSURE_AMBER_THRESHOLD",
+        "category": "threshold",
+        "rule_name": "Pressure AMBER Threshold",
+        "description": "Pressure (metres head) below which a sensor is flagged AMBER",
+        "value_numeric": 25.0,
+        "value_text": None,
+        "unit": "m",
+        "effective_from": "2024-01-01",
+        "effective_to": None,
+        "source": "Internal SOP-WN-001",
+    },
+    {
+        "rule_id": "DEFAULT_BASE_PRESSURE",
+        "category": "threshold",
+        "rule_name": "Default Base Pressure Fallback",
+        "description": "Fallback base pressure (metres head) when dim_properties.base_pressure is NULL",
+        "value_numeric": 25.0,
+        "value_text": None,
+        "unit": "m",
+        "effective_from": "2024-01-01",
+        "effective_to": None,
+        "source": "Engineering estimate",
+    },
+    {
+        "rule_id": "IMPACT_HIGH_THRESHOLD",
+        "category": "threshold",
+        "rule_name": "High Impact Effective Pressure Threshold",
+        "description": "Effective pressure at or below which a property is classified as HIGH impact (no water)",
+        "value_numeric": 0.0,
+        "value_text": None,
+        "unit": "m",
+        "effective_from": "2024-01-01",
+        "effective_to": None,
+        "source": "Internal SOP-WN-001",
+    },
+    {
+        "rule_id": "IMPACT_MEDIUM_THRESHOLD",
+        "category": "threshold",
+        "rule_name": "Medium Impact Effective Pressure Threshold",
+        "description": "Effective pressure at or below which a property is classified as MEDIUM impact (very low pressure)",
+        "value_numeric": 5.0,
+        "value_text": None,
+        "unit": "m",
+        "effective_from": "2024-01-01",
+        "effective_to": None,
+        "source": "Internal SOP-WN-001",
+    },
+    {
+        "rule_id": "IMPACT_LOW_THRESHOLD",
+        "category": "threshold",
+        "rule_name": "Low Impact Effective Pressure Threshold",
+        "description": "Effective pressure at or below which a property is classified as LOW impact (reduced pressure)",
+        "value_numeric": 10.0,
+        "value_text": None,
+        "unit": "m",
+        "effective_from": "2024-01-01",
+        "effective_to": None,
+        "source": "Internal SOP-WN-001",
+    },
+    {
+        "rule_id": "CMEX_GREEN_THRESHOLD",
+        "category": "kpi",
+        "rule_name": "C-MeX Proactive Comms Rate — Green Threshold",
+        "description": "Proactive comms rate percentage at or above which the indicator is GREEN",
+        "value_numeric": 70.0,
+        "value_text": None,
+        "unit": "percent",
+        "effective_from": "2025-04-01",
+        "effective_to": None,
+        "source": "Internal KPI Target — PR24 aligned",
+    },
+    {
+        "rule_id": "CMEX_AMBER_THRESHOLD",
+        "category": "kpi",
+        "rule_name": "C-MeX Proactive Comms Rate — Amber Threshold",
+        "description": "Proactive comms rate percentage at or above which the indicator is AMBER (below this = RED)",
+        "value_numeric": 40.0,
+        "value_text": None,
+        "unit": "percent",
+        "effective_from": "2025-04-01",
+        "effective_to": None,
+        "source": "Internal KPI Target — PR24 aligned",
+    },
+]
+
+# Ensure all-NULL columns are typed as string (not void) so Spark/Lakebase sync works
+rules_df = pd.DataFrame(regulatory_rules)
+rules_df["effective_to"] = pd.array([None] * len(rules_df), dtype=pd.StringDtype())
+rules_df["value_text"] = pd.array([None] * len(rules_df), dtype=pd.StringDtype())
+df_rules = spark.createDataFrame(rules_df)
+df_rules.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{CATALOG}.gold.dim_regulatory_rules")
+print(f"Wrote {df_rules.count()} regulatory rules to {CATALOG}.gold.dim_regulatory_rules")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Catalog Metadata — PK/FK Constraints & Comments
+# MAGIC
+# MAGIC Apply table/column comments and PK/FK constraints for Genie Space accuracy.
+
+# COMMAND ----------
+
+# DBTITLE 1,PK/FK Constraints (idempotent)
+constraint_statements = [
+    # Primary keys
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ADD CONSTRAINT pk_dim_incidents PRIMARY KEY (incident_id) NOT ENFORCED",
+    f"ALTER TABLE {CATALOG}.gold.incident_notifications ADD CONSTRAINT pk_incident_notifications PRIMARY KEY (incident_id) NOT ENFORCED",
+    f"ALTER TABLE {CATALOG}.gold.regulatory_notifications ADD CONSTRAINT pk_regulatory_notifications PRIMARY KEY (notification_id) NOT ENFORCED",
+    # Foreign keys
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ADD CONSTRAINT fk_incident_dma FOREIGN KEY (dma_code) REFERENCES {CATALOG}.silver.dim_dma(dma_code) NOT ENFORCED",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ADD CONSTRAINT fk_incident_asset FOREIGN KEY (root_cause_asset_id) REFERENCES {CATALOG}.silver.dim_assets(asset_id) NOT ENFORCED",
+    f"ALTER TABLE {CATALOG}.gold.incident_notifications ADD CONSTRAINT fk_notif_incident FOREIGN KEY (incident_id) REFERENCES {CATALOG}.gold.dim_incidents(incident_id) NOT ENFORCED",
+    f"ALTER TABLE {CATALOG}.gold.regulatory_notifications ADD CONSTRAINT fk_reg_incident FOREIGN KEY (incident_id) REFERENCES {CATALOG}.gold.dim_incidents(incident_id) NOT ENFORCED",
+]
+
+for sql in constraint_statements:
+    try:
+        spark.sql(sql)
+        print(f"OK:   {sql.split('ADD CONSTRAINT ')[1].split(' ')[0]}")
+    except Exception as e:
+        if "already exists" in str(e).lower() or "CONSTRAINT_ALREADY_EXISTS" in str(e):
+            print(f"SKIP: {sql.split('ADD CONSTRAINT ')[1].split(' ')[0]} (already exists)")
+        else:
+            print(f"ERR:  {sql.split('ADD CONSTRAINT ')[1].split(' ')[0]} — {e}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Table & Column Comments — dim_incidents
+spark.sql(f"""COMMENT ON TABLE {CATALOG}.gold.dim_incidents IS
+  'Active and historical incident records. Each incident has a root cause asset, affected DMA, severity, property impact count, and timeline (start_timestamp / end_timestamp). Use total_properties_affected for the count of impacted properties. Use status = active to filter to ongoing incidents.'""")
+
+comment_stmts = [
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN incident_id COMMENT 'Unique incident identifier (format: INC-YYYY-MMDD-NNN). Primary key.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN dma_code COMMENT 'Primary affected DMA code. Foreign key to dim_dma.dma_code.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN root_cause_asset_id COMMENT 'Asset that caused the incident. Foreign key to dim_assets.asset_id.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN root_cause_asset_type COMMENT 'Type of the root cause asset: pump_station, trunk_main, prv, etc.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN incident_type COMMENT 'Incident classification: pump_station_trip, burst_main, prv_failure, etc.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN title COMMENT 'Short descriptive title of the incident.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN description COMMENT 'Detailed narrative description of the incident, impact, and response.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN start_timestamp COMMENT 'Timestamp when the incident started (UTC). Use this column — not detected_ts — for duration and penalty calculations.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN end_timestamp COMMENT 'Timestamp when the incident was resolved (UTC). NULL for active incidents — use COALESCE(end_timestamp, CURRENT_TIMESTAMP()) for duration calculations.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN status COMMENT 'Incident lifecycle status: active (ongoing) or resolved (closed). Filter on active to see current incidents.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN severity COMMENT 'Incident severity classification: low, medium, high, or critical.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN total_properties_affected COMMENT 'Count of properties impacted by this incident. This is an integer count (not a percentage). Use SUM(total_properties_affected) for aggregate queries across incidents.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN sensitive_premises_affected COMMENT 'Boolean: TRUE if the incident affects any sensitive premises (schools, hospitals, care homes, dialysis-dependent homes).'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN priority_score COMMENT 'Computed priority score (0-100) reflecting severity, property count, sensitive premises, and reservoir risk.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN escalation_risk COMMENT 'Narrative assessment of escalation risk and recommended actions.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN trajectory COMMENT 'Current trajectory of the incident: improving, stable, or deteriorating.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN first_complaint_time COMMENT 'Timestamp of the first customer complaint related to this incident (UTC). NULL if no complaints received.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN assigned_team COMMENT 'Operations team assigned to manage the incident response.'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN sop_reference COMMENT 'Standard Operating Procedure reference for the incident type (e.g. SOP-WN-042).'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN created_at COMMENT 'Timestamp when the incident record was created in the system (UTC).'",
+    f"ALTER TABLE {CATALOG}.gold.dim_incidents ALTER COLUMN updated_at COMMENT 'Timestamp of the most recent update to the incident record (UTC).'",
+]
+for sql in comment_stmts:
+    spark.sql(sql)
+print("dim_incidents: table + column comments applied")
+
+# COMMAND ----------
+
+# DBTITLE 1,Table & Column Comments — incident_notifications
+spark.sql(f"""COMMENT ON TABLE {CATALOG}.gold.incident_notifications IS
+  'Per-incident summary of customer notification metrics. proactive_notifications = customers contacted before they called in; reactive_complaints = customer-initiated contacts. Used for C-MeX proactive notification rate calculations.'""")
+
+for sql in [
+    f"ALTER TABLE {CATALOG}.gold.incident_notifications ALTER COLUMN incident_id COMMENT 'Incident identifier. Primary key and foreign key to dim_incidents.incident_id.'",
+    f"ALTER TABLE {CATALOG}.gold.incident_notifications ALTER COLUMN proactive_notifications COMMENT 'Number of customers proactively notified by the company BEFORE they contacted the company. Proactive notifications positively impact C-MeX scores.'",
+    f"ALTER TABLE {CATALOG}.gold.incident_notifications ALTER COLUMN reactive_complaints COMMENT 'Number of customer-initiated contacts (complaints) received about this incident. These are reactive — the customer called before the company notified them.'",
+]:
+    spark.sql(sql)
+print("incident_notifications: table + column comments applied")
+
+# COMMAND ----------
+
+# DBTITLE 1,Table & Column Comments — regulatory_notifications
+spark.sql(f"""COMMENT ON TABLE {CATALOG}.gold.regulatory_notifications IS
+  'Regulatory notification tracking for DWI (Drinking Water Inspectorate) and Ofwat. Records the timestamp each regulator was formally notified and the notification reference. Use dwi_notified_ts to measure time-to-notification from incident start.'""")
+
+for sql in [
+    f"ALTER TABLE {CATALOG}.gold.regulatory_notifications ALTER COLUMN notification_id COMMENT 'Unique regulatory notification identifier (format: REG-YYYY-MMDD-NNN). Primary key.'",
+    f"ALTER TABLE {CATALOG}.gold.regulatory_notifications ALTER COLUMN incident_id COMMENT 'Related incident identifier. Foreign key to dim_incidents.incident_id.'",
+    f"ALTER TABLE {CATALOG}.gold.regulatory_notifications ALTER COLUMN regulator COMMENT 'Regulatory body notified: DWI (Drinking Water Inspectorate) or Ofwat.'",
+    f"ALTER TABLE {CATALOG}.gold.regulatory_notifications ALTER COLUMN dwi_notified_ts COMMENT 'Timestamp when DWI was formally notified of the incident (UTC). DWI should be notified within 1 hour for incidents affecting sensitive premises.'",
+    f"ALTER TABLE {CATALOG}.gold.regulatory_notifications ALTER COLUMN ofwat_notified_ts COMMENT 'Timestamp when Ofwat was formally notified (UTC). NULL if not required or not yet sent.'",
+    f"ALTER TABLE {CATALOG}.gold.regulatory_notifications ALTER COLUMN notification_ref COMMENT 'External reference number for the regulatory notification (e.g. DWI-NOT-2026-0407-001).'",
+    f"ALTER TABLE {CATALOG}.gold.regulatory_notifications ALTER COLUMN status COMMENT 'Notification status: acknowledged (regulator confirmed receipt) or pending.'",
+]:
+    spark.sql(sql)
+print("regulatory_notifications: table + column comments applied")
+
+# COMMAND ----------
+
 # DBTITLE 1,Validation Summary
 print("=== Incident & Operational Data Generation Complete ===")
 for table in [
@@ -743,9 +1166,11 @@ for table in [
     "gold.communications_log",
     "gold.dim_response_playbooks",
     "gold.shift_handovers",
+    "gold.incident_outstanding_actions",
     "gold.comms_requests",
     "gold.incident_notifications",
     "gold.regulatory_notifications",
+    "gold.dim_regulatory_rules",
 ]:
     count = spark.table(f"{CATALOG}.{table}").count()
     print(f"  {table}: {count} rows")

@@ -470,7 +470,7 @@ async function setupRoutes(appkit: any) {
     try {
       const rows = await query(
         `SELECT sensor_id, timestamp AS scored_at, anomaly_sigma AS score, baseline_value, actual_value, is_anomaly
-         FROM anomaly_scores WHERE sensor_id = $1 ORDER BY timestamp DESC LIMIT 100`,
+         FROM anomaly_scores WHERE sensor_id = $1 AND is_anomaly = true ORDER BY timestamp DESC LIMIT 100`,
         [req.params.id]
       );
       res.json({ anomalies: rows });

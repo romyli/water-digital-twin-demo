@@ -40,7 +40,7 @@ targets:
       host: https://adb-984752964297111.11.azuredatabricks.net
 
     variables:
-      genie_space_id: "00000000000000000000000000000000"
-      genie_space_name: "Network Operations"
-      postgres_branch: projects/water-digital-twin-demo-demo/branches/production
-      postgres_database: projects/water-digital-twin-demo-demo/branches/production/databases/db-osgm-kmix6wutja
+      genie_space_id: "01f1373046d21bd1a817963468ad6200"
+      genie_space_name: "Water Demo - Operator"
+      postgres_branch: projects/water-digital-twin-demo/branches/production
+      postgres_database: projects/water-digital-twin-demo/branches/production/databases/db-osgm-kmix6wutja

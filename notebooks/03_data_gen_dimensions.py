@@ -211,6 +211,19 @@ PROPERTY_TYPES_NORMAL = {
 TOTAL_PROPERTIES = 50000
 DEMO_DMA_01_PROPERTIES = 810  # 800+ as specified
 
+# Normal network pressure at DMA supply points (metres head).
+# London gravity-fed network: supply reservoirs at ~95m AOD deliver ~50m head
+# at low-lying DMAs, less at high-elevation DMAs. We model this as:
+#   supply_pressure = max(20, 55 - (dma_elevation - 20) * 0.25)
+# Then base_pressure at a property = supply_pressure - (property_elevation - dma_elevation) / 10.2
+# (10.2 m water column ≈ 1 bar; we keep everything in metres head)
+def compute_base_pressure(dma_elevation, property_elevation):
+    """Compute expected base pressure (metres head) at a property."""
+    supply_pressure = max(20.0, 55.0 - (dma_elevation - 20.0) * 0.25)
+    head_loss = max(0.0, (property_elevation - dma_elevation)) * 0.8
+    base = supply_pressure - head_loss + random.gauss(0, 1.5)
+    return round(max(5.0, base), 1)
+
 property_records = []
 property_counter = 0
 
@@ -262,6 +275,10 @@ for ptype, count in demo_type_counts.items():
         house_num = random.randint(1, 200)
 
         is_sensitive = ptype in ("school", "hospital", "dialysis_home", "care_home")
+        sensitive_type = ptype if is_sensitive else None
+
+        prop_elev = round(max(5.0, d_elev + random.uniform(-15, 15)), 1)
+        base_pressure = compute_base_pressure(d_elev, prop_elev)
 
         property_records.append({
             "property_id": f"PROP_{property_counter:06d}",
@@ -272,9 +289,11 @@ for ptype, count in demo_type_counts.items():
             "latitude": plat,
             "longitude": plon,
             "customer_height_m": customer_height,
-            "elevation_m": round(max(5.0, d_elev + random.uniform(-15, 15)), 1),
+            "elevation_m": prop_elev,
+            "base_pressure": base_pressure,
             "occupants": random.randint(1, 6) if ptype == "domestic" else random.randint(10, 500),
             "is_sensitive_premise": is_sensitive,
+            "sensitive_premise_type": sensitive_type,
             "contact_phone": f"07{random.randint(100,999)}{random.randint(100000,999999)}",
             "contact_email": f"resident{property_counter}@example.com",
             "created_at": datetime(2024, 6, 1).isoformat(),
@@ -305,9 +324,13 @@ for i, dma_code in enumerate(other_dma_codes):
         plon = round(dma["centroid_longitude"] + random.uniform(-0.008, 0.008), 6)
         customer_height = round(random.uniform(3, max(10, dma["avg_elevation"])), 1)
         is_sensitive = ptype in ("school", "hospital", "dialysis_home", "care_home")
+        sensitive_type = ptype if is_sensitive else None
 
         street = random.choice(STREET_NAMES)
         house_num = random.randint(1, 200)
+
+        prop_elev = round(max(2.0, dma["avg_elevation"] + random.uniform(-15, 15)), 1)
+        base_pressure = compute_base_pressure(dma["avg_elevation"], prop_elev)
 
         property_records.append({
             "property_id": f"PROP_{property_counter:06d}",
@@ -318,9 +341,11 @@ for i, dma_code in enumerate(other_dma_codes):
             "latitude": plat,
             "longitude": plon,
             "customer_height_m": customer_height,
-            "elevation_m": round(max(2.0, dma["avg_elevation"] + random.uniform(-15, 15)), 1),
+            "elevation_m": prop_elev,
+            "base_pressure": base_pressure,
             "occupants": random.randint(1, 6) if ptype == "domestic" else random.randint(10, 500),
             "is_sensitive_premise": is_sensitive,
+            "sensitive_premise_type": sensitive_type,
             "contact_phone": f"07{random.randint(100,999)}{random.randint(100000,999999)}",
             "contact_email": f"resident{property_counter}@example.com",
             "created_at": datetime(2024, 6, 1).isoformat(),

@@ -8,6 +8,7 @@ import {
   fetchMapSensors,
   fetchMapAllComplaints,
   fetchMapAllSensitive,
+  fetchMapCentre,
 } from "../api";
 import DMADetail from "./DMADetail";
 import LoadingSpinner from "./common/LoadingSpinner";
@@ -75,7 +76,7 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
   const [selectedDMA, setSelectedDMA] = useState<string | null>(null);
   const [filter, setFilter] = useState("ALL");
   const [showSensors, setShowSensors] = useState(false);
-  const [showOverlays, setShowOverlays] = useState(true);
+  const [showOverlays, setShowOverlays] = useState(false);
   const [hoverInfo, setHoverInfo] = useState<{
     lng: number; lat: number;
     dma_code: string; dma_name: string; rag_status: string;
@@ -97,6 +98,12 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
     queryKey: ["mapGeoJSON"],
     queryFn: fetchMapGeoJSON,
     staleTime: 60_000,
+  });
+
+  const { data: mapCentre } = useQuery({
+    queryKey: ["mapCentre"],
+    queryFn: fetchMapCentre,
+    staleTime: 300_000,
   });
 
   const { data: assetGeoJSON } = useQuery({
@@ -218,7 +225,7 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
     <div className="relative h-full flex">
       <div className="flex-1 relative">
         <Map
-          initialViewState={{ longitude: -0.08, latitude: 51.49, zoom: 11 }}
+          initialViewState={{ longitude: mapCentre?.longitude ?? -0.08, latitude: mapCentre?.latitude ?? 51.49, zoom: 11 }}
           style={{ position: "absolute", inset: 0 }}
           mapStyle={MAP_STYLE}
           interactiveLayerIds={allInteractiveIds}
@@ -298,9 +305,6 @@ export default function MapView({ activeIncident }: { activeIncident: any }) {
                 id="complaint-dots"
                 type="symbol"
                 layout={{
-                  "icon-image": "diamond",
-                  "icon-size": 0.8,
-                  "icon-allow-overlap": true,
                   "text-field": "!",
                   "text-size": 11,
                   "text-font": ["Open Sans Bold"],

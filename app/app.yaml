@@ -1,6 +1,6 @@
 command: ['npm', 'run', 'start']
 env:
   - name: DATABRICKS_GENIE_SPACE_ID
-    valueFrom: genie-space
+    value: "01f1373046d21bd1a817963468ad6200"
   - name: LAKEBASE_ENDPOINT
     valueFrom: postgres

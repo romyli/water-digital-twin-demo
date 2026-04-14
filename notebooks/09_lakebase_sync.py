@@ -56,9 +56,12 @@ TABLES = [
     ("dim_response_playbooks", f"{CATALOG}.gold.dim_response_playbooks",   False, None),
     ("comms_requests",         f"{CATALOG}.gold.comms_requests",           False, None),
     ("dma_status",             f"{CATALOG}.gold.dma_status",               False, None),
-    ("dma_summary",            f"{CATALOG}.gold.dma_summary",              False, None),
+    ("vw_dma_summary",         f"{CATALOG}.gold.vw_dma_summary",           False, None),
     ("dma_rag_history",        f"{CATALOG}.gold.dma_rag_history",          False, None),
     ("anomaly_scores",         f"{CATALOG}.gold.anomaly_scores",           False, None),
+    ("mv_sensor_latest",       f"{CATALOG}.gold.mv_sensor_latest",         False, None),
+    ("incident_outstanding_actions", f"{CATALOG}.gold.incident_outstanding_actions", False, None),
+    ("dim_regulatory_rules",   f"{CATALOG}.gold.dim_regulatory_rules",     False, None),
     # Silver fact (last 7 days)
     ("fact_telemetry",         f"{CATALOG}.silver.fact_telemetry",         False, "last_7_days"),
 ]

@@ -66,7 +66,7 @@
 # MAGIC %md
 # MAGIC ## Step 3 -- Add Trusted Assets
 # MAGIC
-# MAGIC Add the following 19 tables and metric views as trusted assets. These are the only objects Genie will use to answer questions.
+# MAGIC Add the following 20 tables and metric views as trusted assets. These are the only objects Genie will use to answer questions.
 # MAGIC
 # MAGIC ### Metric Views (gold schema)
 # MAGIC
@@ -97,15 +97,16 @@
 # MAGIC | 13 | `water_digital_twin.silver.dim_reservoirs` | Service reservoir metadata (capacity, current level, demand rate) |
 # MAGIC | 14 | `water_digital_twin.silver.dim_asset_dma_feed` | Asset-to-DMA feed relationships (which assets serve which DMAs) |
 # MAGIC | 15 | `water_digital_twin.silver.dim_reservoir_dma_feed` | Reservoir-to-DMA feed topology (primary/secondary feeds) |
+# MAGIC | 16 | `water_digital_twin.silver.customer_complaints` | Customer complaints by type (no_water, low_pressure, discoloured_water), DMA, channel, and resolution status |
 # MAGIC
 # MAGIC ### Gold Operational Tables
 # MAGIC
 # MAGIC | # | Asset | Description |
 # MAGIC |---|---|---|
-# MAGIC | 16 | `water_digital_twin.gold.dma_status` | Current RAG status for every DMA |
-# MAGIC | 17 | `water_digital_twin.gold.dma_rag_history` | Historical RAG snapshots with pressure comparisons |
-# MAGIC | 18 | `water_digital_twin.gold.anomaly_scores` | Sensor-level anomaly scores (sigma-based) |
-# MAGIC | 19 | `water_digital_twin.gold.dim_incidents` | Active and historical incident records |
+# MAGIC | 17 | `water_digital_twin.gold.dma_status` | Current RAG status for every DMA |
+# MAGIC | 18 | `water_digital_twin.gold.dma_rag_history` | Historical RAG snapshots with pressure comparisons |
+# MAGIC | 19 | `water_digital_twin.gold.anomaly_scores` | Sensor-level anomaly scores (sigma-based) |
+# MAGIC | 20 | `water_digital_twin.gold.dim_incidents` | Active and historical incident records |
 
 # COMMAND ----------
 
@@ -118,36 +119,41 @@
 # MAGIC
 # MAGIC ### Measures
 # MAGIC
-# MAGIC | Name | Expression | Description |
-# MAGIC |---|---|---|
-# MAGIC | `avg_pressure_m` | `AVG(avg_pressure)` | Average pressure in metres head across sensors in a DMA |
-# MAGIC | `min_pressure_m` | `MIN(min_pressure)` | Minimum pressure — low values indicate supply issues |
-# MAGIC | `avg_flow_rate_ls` | `AVG(flow_rate)` | Average flow rate in litres per second |
-# MAGIC | `anomaly_count` | `SUM(CASE WHEN is_anomaly = true THEN 1 ELSE 0 END)` | Number of readings flagged as anomalous (> 2.5 sigma) |
-# MAGIC | `sensor_uptime_pct` | `ROUND(SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1)` | Percentage of sensors that are operational |
-# MAGIC | `properties_affected` | `SUM(total_properties_affected)` | Total properties affected by incidents |
-# MAGIC | `reservoir_hours_remaining` | `MIN(hours_remaining)` | Worst-case hours of supply remaining across reservoirs |
+# MAGIC > **Important:** `avg_pressure` exists in multiple tables (`dma_status`, `dma_rag_history`, `vw_dma_pressure`, `dma_summary`). Use table-qualified expressions so Genie picks the right source.
+# MAGIC
+# MAGIC Each measure has four fields in the UI: **Name**, **Code** (SQL expression), **Synonyms** (comma-separated), and **Instructions**.
+# MAGIC
+# MAGIC | Name | Code | Synonyms | Instructions |
+# MAGIC |---|---|---|---|
+# MAGIC | `current_avg_pressure_m` | `AVG(dma_status.avg_pressure)` | current pressure, live pressure, pressure now | Use for "what's the pressure now" questions. Returns metres head. Source: dma_status (real-time snapshot). |
+# MAGIC | `historical_avg_pressure_m` | `AVG(dma_rag_history.avg_pressure)` | past pressure, pressure history, pressure at time | Use for "what was the pressure at 2am" or trend questions. Returns metres head. Source: dma_rag_history (15-min snapshots). |
+# MAGIC | `min_pressure_m` | `MIN(dma_status.min_pressure)` | lowest pressure, worst pressure, minimum pressure | Minimum pressure across sensors in a DMA. Low values (< 15m) indicate supply loss. Returns metres head. |
+# MAGIC | `avg_flow_rate_ls` | `AVG(fact_telemetry.flow_rate)` | flow, flow rate, water flow | Average flow rate at DMA entry points. Returns litres per second (l/s). |
+# MAGIC | `anomaly_count` | `SUM(CASE WHEN anomaly_scores.is_anomaly = true THEN 1 ELSE 0 END)` | anomalies, unusual readings, flagged readings | Count of readings exceeding 2.5 sigma threshold. Use for anomaly rates and detection summaries. |
+# MAGIC | `sensor_uptime_pct` | `ROUND(SUM(CASE WHEN mv_sensor_latest.status = 'active' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1)` | sensor availability, uptime, sensor health | Percentage of sensors that are operational (status = active). Returns 0-100%. |
+# MAGIC | `properties_affected` | `SUM(dim_incidents.total_properties_affected)` | homes affected, customers impacted, properties impacted | Total properties affected by incidents. Count of distinct properties, not a percentage. |
+# MAGIC | `reservoir_hours_remaining` | `MIN(vw_reservoir_status.hours_remaining)` | supply remaining, reservoir time left, hours of water left | Worst-case hours of supply remaining across reservoirs feeding a DMA. Use MIN to show the most urgent reservoir. |
 # MAGIC
 # MAGIC ### Filters
 # MAGIC
-# MAGIC | Name | Expression | Description |
-# MAGIC |---|---|---|
-# MAGIC | `red_dmas` | `rag_status = 'RED'` | DMAs in RED status — immediate attention required |
-# MAGIC | `amber_dmas` | `rag_status = 'AMBER'` | DMAs in AMBER status — monitoring required |
-# MAGIC | `high_anomaly` | `anomaly_sigma > 3` | Readings with anomaly score above 3 sigma |
-# MAGIC | `active_incidents` | `status = 'active'` | Currently active incidents |
-# MAGIC | `sensitive_premises` | `property_type IN ('school', 'hospital', 'care_home', 'dialysis_home')` | Sensitive premises requiring priority response |
-# MAGIC | `pressure_sensors` | `sensor_type = 'pressure'` | Pressure measurement sensors only |
-# MAGIC | `flow_sensors` | `sensor_type = 'flow'` | Flow measurement sensors only |
+# MAGIC | Name | Code | Synonyms | Instructions |
+# MAGIC |---|---|---|---|
+# MAGIC | `red_dmas` | `dma_status.rag_status = 'RED'` | critical zones, red zones, supply loss areas | RED = min_pressure < 15m. Immediate attention required — likely supply interruption. |
+# MAGIC | `amber_dmas` | `dma_status.rag_status = 'AMBER'` | warning zones, amber zones, degraded areas | AMBER = min_pressure < 25m. Monitoring required — pressure below normal but supply maintained. |
+# MAGIC | `high_anomaly` | `anomaly_scores.anomaly_sigma > 3` | high sigma, unusual sensors, 3 sigma readings | Readings more than 3 standard deviations from the 7-day rolling baseline. Warrants investigation. |
+# MAGIC | `active_incidents` | `dim_incidents.status = 'active'` | ongoing incidents, current incidents, open incidents | Incidents that are currently active (not yet resolved). |
+# MAGIC | `sensitive_premises` | `dim_properties.property_type IN ('school', 'hospital', 'care_home', 'dialysis_home')` | vulnerable properties, priority premises, sensitive properties | Properties requiring priority response during supply interruptions. Excludes domestic and commercial. |
+# MAGIC | `pressure_sensors` | `dim_sensor.sensor_type = 'pressure'` | pressure monitors, pressure gauges | Filters to pressure sensors only. Reading unit: metres head (m). |
+# MAGIC | `flow_sensors` | `dim_sensor.sensor_type = 'flow'` | flow meters, flow monitors | Filters to flow sensors only. Reading unit: litres per second (l/s). |
 # MAGIC
 # MAGIC ### Dimensions
 # MAGIC
-# MAGIC | Name | Expression | Description |
-# MAGIC |---|---|---|
-# MAGIC | `dma_code` | `dma_code` | District Metered Area identifier (e.g., DEMO_DMA_01) |
-# MAGIC | `sensor_type` | `sensor_type` | Sensor type: pressure or flow |
-# MAGIC | `rag_status` | `rag_status` | RED/AMBER/GREEN health classification |
-# MAGIC | `property_type` | `property_type` | Property classification: domestic, school, hospital, care_home, etc. |
+# MAGIC | Name | Code | Synonyms | Instructions |
+# MAGIC |---|---|---|---|
+# MAGIC | `dma_code` | `dim_dma.dma_code` | zone, district, area, DMA, metered area | District Metered Area identifier (e.g., DEMO_DMA_01). Primary grouping for all network data. |
+# MAGIC | `sensor_type` | `dim_sensor.sensor_type` | sensor kind, measurement type | Two values: pressure (metres head) or flow (litres per second). |
+# MAGIC | `rag_status` | `dma_status.rag_status` | health status, traffic light, RAG, status colour | RED/AMBER/GREEN health classification. RED is worst. |
+# MAGIC | `property_type` | `dim_properties.property_type` | building type, premises type, property category | Values: domestic, school, hospital, care_home, dialysis_home, commercial, nursery, key_account. |
 
 # COMMAND ----------
 
@@ -202,25 +208,123 @@
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 6 -- Add Sample Questions
+# MAGIC ## Step 6 -- Configure Data Settings
 # MAGIC
-# MAGIC Add these 10 sample questions to help users discover the Space's capabilities:
+# MAGIC These settings improve Genie's ability to match natural language to specific column values, reduce noise, and join tables confidently.
+# MAGIC
+# MAGIC ### 6a -- Enable Entity Matching
+# MAGIC
+# MAGIC Navigate to **Configure → Data** and enable entity matching on these columns:
+# MAGIC
+# MAGIC | Column | Table(s) | Values |
+# MAGIC |---|---|---|
+# MAGIC | `rag_status` | `dma_status`, `dma_rag_history` | GREEN, AMBER, RED |
+# MAGIC | `status` (incidents) | `dim_incidents` | active, resolved |
+# MAGIC | `severity` | `dim_incidents` | low, medium, high, critical |
+# MAGIC | `property_type` | `dim_properties` | domestic, school, hospital, care_home, dialysis_home, commercial, nursery, key_account |
+# MAGIC | `sensor_type` | `dim_sensor`, `fact_telemetry` | pressure, flow |
+# MAGIC | `asset_type` | `dim_assets` | pump_station, trunk_main, isolation_valve, prv |
+# MAGIC | `feed_type` | `dim_asset_dma_feed`, `dim_reservoir_dma_feed` | primary, secondary |
+# MAGIC | `complaint_type` | `customer_complaints` | no_water, low_pressure, discoloured_water, other |
+# MAGIC
+# MAGIC > **Note:** Entity matching limits: max 120 columns per space, max 1,024 distinct values per column.
+# MAGIC
+# MAGIC ### 6b -- Hide Irrelevant Columns
+# MAGIC
+# MAGIC In **Configure → Data**, uncheck these columns:
+# MAGIC
+# MAGIC - `geometry_wkt` (all tables) — WKT text, not useful for NL queries
+# MAGIC - `h3_index` (`dim_dma`, `dim_properties`) — internal spatial index
+# MAGIC - `centroid_latitude`, `centroid_longitude` (`dim_dma`) — redundant with centroid geometry column
+# MAGIC - `quality_flag` (`fact_telemetry`) — rarely queried, adds token noise
+# MAGIC
+# MAGIC ### 6c -- Add Join Definitions
+# MAGIC
+# MAGIC In **Configure → Data → Join Definitions**, add these joins. Even though PK/FK exists in UC, explicit join definitions give Genie highest confidence.
+# MAGIC
+# MAGIC | Left Table | Right Table | Left Column | Right Column | Relationship Type | Instructions |
+# MAGIC |---|---|---|---|---|---|
+# MAGIC | `dim_incidents` | `dim_dma` | `dma_code` | `dma_code` | Many to One | Join incidents to DMA reference data for names and geographic context. |
+# MAGIC | `dim_properties` | `dim_dma` | `dma_code` | `dma_code` | Many to One | Join properties to their DMA for area-level aggregation. |
+# MAGIC | `dim_sensor` | `dim_dma` | `dma_code` | `dma_code` | Many to One | Join sensors to their DMA for area-level grouping. |
+# MAGIC | `dim_asset_dma_feed` | `dim_assets` | `asset_id` | `asset_id` | Many to One | Join feed topology to asset details (name, type, status). |
+# MAGIC | `dim_asset_dma_feed` | `dim_dma` | `dma_code` | `dma_code` | Many to One | Join feed topology to DMA for "which DMAs does this asset serve?" queries. |
+# MAGIC | `dim_reservoir_dma_feed` | `dim_reservoirs` | `reservoir_id` | `reservoir_id` | Many to One | Join feed topology to reservoir details (capacity, level, hours remaining). |
+# MAGIC | `dim_reservoir_dma_feed` | `dim_dma` | `dma_code` | `dma_code` | Many to One | Join feed topology to DMA for "which reservoirs feed this DMA?" queries. |
+# MAGIC | `anomaly_scores` | `dim_sensor` | `sensor_id` | `sensor_id` | Many to One | Join anomaly scores to sensor metadata for type, location, and DMA context. |
+# MAGIC | `fact_telemetry` | `dim_sensor` | `sensor_id` | `sensor_id` | Many to One | Join telemetry readings to sensor metadata. |
+# MAGIC | `fact_telemetry` | `dim_dma` | `dma_code` | `dma_code` | Many to One | Join telemetry readings to DMA reference data. |
+# MAGIC | `customer_complaints` | `dim_dma` | `dma_code` | `dma_code` | Many to One | Join complaints to DMA for area-level complaint analysis. |
+# MAGIC | `customer_complaints` | `dim_properties` | `property_id` | `property_id` | Many to One | Join complaints to property details for type and location context. |
+# MAGIC
+# MAGIC ### 6d -- Add Column Synonyms
+# MAGIC
+# MAGIC In **Configure → Data → Column Synonyms**, add:
+# MAGIC
+# MAGIC | Table | Column | Synonyms |
+# MAGIC |---|---|---|
+# MAGIC | `dim_dma` | `dma_code` | zone, district, area, DMA, metered area, supply zone |
+# MAGIC | `dma_status` | `rag_status` | health status, traffic light, RAG, status colour |
+# MAGIC | `anomaly_scores` | `anomaly_sigma` | anomaly score, deviation, sigma, z-score |
+# MAGIC | `dim_sensor` | `sensor_type` | sensor kind, measurement type |
+# MAGIC | `dim_incidents` | `total_properties_affected` | homes affected, properties impacted, customers affected |
+# MAGIC | `vw_dma_summary` | `sensitive_premises_count` | vulnerable properties, priority premises |
+# MAGIC | `dim_properties` | `property_type` | building type, premises type, property category |
+# MAGIC | `customer_complaints` | `complaint_type` | complaint reason, issue type, customer issue |
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Step 7 -- Add Agent Questions
+# MAGIC
+# MAGIC Agent questions require Genie to run multiple queries and synthesize an analytical answer. These showcase multi-step reasoning.
+# MAGIC
+# MAGIC Add these as sample questions alongside the standard SQL questions:
+# MAGIC
+# MAGIC 1. What's causing the low pressure in DEMO_DMA_01?
+# MAGIC 2. Give me a full situation report for the active incident
+# MAGIC 3. Is the pressure situation getting better or worse?
+# MAGIC 4. Which other DMAs might be affected if DEMO_PUMP_01 stays down?
+# MAGIC 5. Are there early warning signs of problems in other DMAs?
+# MAGIC
+# MAGIC > **Tip:** Agent questions work best when UC metadata (table/column descriptions, PK/FK constraints) is complete. Ensure Steps 2 and 6 are done before testing agent questions.
+# MAGIC
+# MAGIC ### Agent Question Rephrasings
+# MAGIC
+# MAGIC Add rephrasings for benchmarks:
+# MAGIC
+# MAGIC | Agent question | Rephrasings |
+# MAGIC |---|---|
+# MAGIC | Root cause analysis | "Why is pressure low in DMA 01?", "Diagnose the DEMO_DMA_01 issue" |
+# MAGIC | Situation report | "Situation report for DEMO_DMA_01", "What's the status of the current incident?" |
+# MAGIC | Trajectory analysis | "Is the incident improving?", "Pressure trend analysis for the active incident" |
+# MAGIC | Cascading risk | "Impact assessment if DEMO_PUMP_01 stays offline", "Downstream risk analysis" |
+# MAGIC | Early warnings | "Network-wide anomaly scan", "Which DMAs show emerging problems?" |
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Step 8 -- Add Sample Questions
+# MAGIC
+# MAGIC Add these 12 sample questions to help users discover the Space's capabilities:
 # MAGIC
 # MAGIC 1. Which DMAs had the biggest pressure drop in the last 6 hours?
 # MAGIC 2. How many hospitals and schools are in DEMO_DMA_01?
 # MAGIC 3. Show pressure trend for DEMO_SENSOR_01 over last 24 hours
 # MAGIC 4. Which pump stations feed DMAs that are currently red?
 # MAGIC 5. Current reservoir level for red/amber DMAs?
-# MAGIC 6. All DMAs within 5 km of DEMO_DMA_01
+# MAGIC 6. Which DMAs share a reservoir or pump station with DEMO_DMA_01?
 # MAGIC 7. Properties without supply for more than 3 hours?
 # MAGIC 8. Schools in affected DMAs
-# MAGIC 9. Flow rate at DEMO_DMA_01 entry at 2 am vs now?
-# MAGIC 10. Sensors in DEMO_DMA_01 with anomaly scores above 3 sigma?
+# MAGIC 9. Flow into DEMO_DMA_01 at 2 am vs now?
+# MAGIC 10. Any unusual sensor readings in DEMO_DMA_01?
+# MAGIC 11. How many DMAs are red, amber, and green right now?
+# MAGIC 12. When did the pressure drop start in DEMO_DMA_01?
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 7 -- Add Verified Queries
+# MAGIC ## Step 9 -- Add Verified Queries
 # MAGIC
 # MAGIC Verified queries ensure Genie returns exact, tested SQL for critical questions. These are stored in `genie/operator_verified_queries.sql` in the project repo.
 # MAGIC
@@ -233,7 +337,7 @@
 # MAGIC 5. Add a brief description of the expected result.
 # MAGIC 6. Click **Save**.
 # MAGIC
-# MAGIC Repeat for all 10 queries (Q1-Q10).
+# MAGIC Repeat for all 12 queries (Q1-Q12).
 # MAGIC
 # MAGIC ### Parameterized Queries
 # MAGIC
@@ -245,14 +349,15 @@
 # MAGIC |---|---|---|
 # MAGIC | "How many hospitals and schools are in `:dma_code`?" | `:dma_code` | String |
 # MAGIC | "Pressure trend for `:sensor_id` over last 24 hours" | `:sensor_id` | String |
-# MAGIC | "Sensors in `:dma_code` with anomaly scores above 3 sigma" | `:dma_code` | String |
+# MAGIC | "Unusual sensor readings in `:dma_code`" | `:dma_code` | String |
+# MAGIC | "When did the pressure drop start in `:dma_code`?" | `:dma_code` | String |
 # MAGIC
 # MAGIC > **Tip:** Verified queries take priority over Genie-generated SQL. If a user's question closely matches a verified query trigger, Genie will use the verified SQL verbatim.
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 8 -- Build Benchmark Evaluation Set
+# MAGIC ## Step 10 -- Build Benchmark Evaluation Set
 # MAGIC
 # MAGIC Benchmarks are the primary tool for measuring and improving Genie accuracy. Each Space supports up to **500 benchmark questions**.
 # MAGIC
@@ -266,7 +371,7 @@
 # MAGIC
 # MAGIC ### Add Rephrasings
 # MAGIC
-# MAGIC For each of the 10 sample questions, add **2-3 rephrasings** to test robustness. Users ask the same question in different ways — the Space must handle all of them.
+# MAGIC For each of the 12 sample questions, add **2-3 rephrasings** to test robustness. Users ask the same question in different ways — the Space must handle all of them.
 # MAGIC
 # MAGIC | Original question | Rephrasings |
 # MAGIC |---|---|
@@ -275,24 +380,26 @@
 # MAGIC | Q3 — Pressure trend SENSOR_01 | "What happened to pressure at sensor 01?", "Graph pressure for DEMO_SENSOR_01 today" |
 # MAGIC | Q4 — Pumps feeding red DMAs | "Which pumps serve the red zones?", "Pump stations connected to DMAs that are red" |
 # MAGIC | Q5 — Reservoir levels | "How full are the reservoirs for affected DMAs?", "Water levels for red and amber areas" |
-# MAGIC | Q6 — Nearby DMAs | "What's near DEMO_DMA_01?", "DMAs close to Crystal Palace South" |
+# MAGIC | Q6 — Shared-feed DMAs | "What's connected to DEMO_DMA_01?", "Which zones share infrastructure with Crystal Palace South?" |
 # MAGIC | Q7 — Properties >3h no supply | "How many homes have been without water for over 3 hours?", "Properties exceeding the Ofwat threshold" |
 # MAGIC | Q8 — Schools in affected DMAs | "Which schools are impacted?", "Schools in red or amber DMAs" |
-# MAGIC | Q9 — Flow rate 2am vs now | "Compare flow at DMA 01 entry overnight", "What was flow like before the incident vs now?" |
-# MAGIC | Q10 — Anomaly >3σ in DMA_01 | "High anomaly sensors in Crystal Palace?", "Which sensors have unusual readings in DMA 01?" |
+# MAGIC | Q9 — Flow 2am vs now | "What was the flow into DMA 01 before the incident?", "Compare overnight flow vs current for DMA 01" |
+# MAGIC | Q10 — Unusual readings in DMA_01 | "Which sensors are flagged in DMA 01?", "Anything alarming in Crystal Palace South?" |
+# MAGIC | Q11 — Network status | "RAG summary", "How's the network looking?" |
+# MAGIC | Q12 — Pressure drop timeline | "When did pressure fall in Crystal Palace South?", "Pressure history for DMA 01 today" |
 # MAGIC
 # MAGIC ### Run and Evaluate
 # MAGIC
 # MAGIC 1. Click **Run Benchmarks** to evaluate all questions at once.
 # MAGIC 2. Review results: **Good** means Genie's SQL matches the gold standard. **Bad** means the response diverged.
 # MAGIC 3. For each **Bad** result, examine the generated SQL to understand what Genie misinterpreted.
-# MAGIC 4. Fix by adding/refining SQL expressions (Step 4), example queries (Step 7), or text instructions (Step 5) — in that priority order.
+# MAGIC 4. Fix by adding/refining SQL expressions (Step 4), example queries (Step 9), or text instructions (Step 5) — in that priority order.
 # MAGIC 5. Re-run benchmarks after every change.
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 9 -- Monitor and Iterate
+# MAGIC ## Step 11 -- Monitor and Iterate
 # MAGIC
 # MAGIC After sharing the Space with users, use the **Monitoring** tab to continuously improve accuracy.
 # MAGIC
@@ -328,11 +435,13 @@
 # MAGIC | Q3 - Pressure trend SENSOR_01 | ~45-55 m until 02:00, then ~5-10 m |
 # MAGIC | Q4 - Pump stations feeding red DMAs | DEMO_PUMP_01 |
 # MAGIC | Q5 - Reservoir levels | DEMO_SR_01 at ~43% |
-# MAGIC | Q6 - Nearby DMAs | Neighbours within 5 km |
+# MAGIC | Q6 - Shared-feed DMAs | DMAs sharing reservoirs or pump stations |
 # MAGIC | Q7 - Properties >3h without supply | 312+ properties |
 # MAGIC | Q8 - Schools in affected DMAs | 2+ in DEMO_DMA_01 |
 # MAGIC | Q9 - Flow rate 2am vs now | ~45 l/s to ~12 l/s |
-# MAGIC | Q10 - Anomaly scores >3 sigma | DEMO_SENSOR_01 + others |
+# MAGIC | Q10 - Unusual readings | DEMO_SENSOR_01 + others with anomaly_sigma > 3 |
+# MAGIC | Q11 - Network RAG status | Mostly GREEN, 1+ RED (DEMO_DMA_01) |
+# MAGIC | Q12 - Pressure drop timeline | Drop visible around 02:00 on 2026-04-07 |
 
 # COMMAND ----------
 

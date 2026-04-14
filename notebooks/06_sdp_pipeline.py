@@ -167,7 +167,22 @@ def raw_reservoir_dma_feed():
 
 # COMMAND ----------
 
-@dp.table(name="silver.fact_telemetry")
+@dp.table(
+    name="silver.fact_telemetry",
+    comment="Sensor telemetry readings at 15-minute intervals. Pressure sensors report in the value column (metres head); flow sensors report in the flow_rate column (litres per second). Join to dim_sensor on sensor_id for sensor metadata and DMA assignment.",
+    schema="""
+        sensor_id STRING NOT NULL COMMENT 'Sensor that produced the reading. Foreign key to dim_sensor.'
+            CONSTRAINT fk_telemetry_sensor FOREIGN KEY REFERENCES silver.dim_sensor(sensor_id),
+        dma_code STRING NOT NULL COMMENT 'DMA code where the reading was taken. Foreign key to dim_dma.'
+            CONSTRAINT fk_telemetry_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
+        timestamp STRING COMMENT 'Timestamp of the telemetry reading (UTC).',
+        sensor_type STRING COMMENT 'Sensor type: pressure or flow.',
+        value DOUBLE COMMENT 'Pressure reading in metres head. NULL for flow sensors.',
+        total_head_pressure DOUBLE COMMENT 'Total head pressure in metres head. NULL for flow sensors.',
+        flow_rate DOUBLE COMMENT 'Flow rate in litres per second. NULL for pressure sensors.',
+        quality_flag STRING COMMENT 'Data quality flag for the reading.'
+    """,
+)
 @dp.expect("pressure_in_range", "sensor_type != 'pressure' OR (value BETWEEN 0 AND 120)")
 @dp.expect("flow_in_range", "sensor_type != 'flow' OR (flow_rate BETWEEN 0 AND 500)")
 def fact_telemetry():
@@ -204,17 +219,19 @@ def fact_telemetry():
 
 @dp.materialized_view(
     name="silver.dim_dma",
+    comment="District Metered Area (DMA) reference data. Each DMA is a discrete, boundary-metered zone of the water distribution network with a unique code (e.g. DEMO_DMA_01). Contains centroid coordinates, H3 index, average elevation, and configurable pressure RED/AMBER thresholds.",
     schema="""
-        dma_code STRING NOT NULL CONSTRAINT pk_dim_dma PRIMARY KEY,
-        dma_name STRING,
-        dma_area_code STRING,
-        geometry_wkt STRING,
-        centroid_latitude DOUBLE,
-        centroid_longitude DOUBLE,
-        avg_elevation DOUBLE,
-        h3_index STRING,
-        pressure_red_threshold DOUBLE,
-        pressure_amber_threshold DOUBLE
+        dma_code STRING NOT NULL COMMENT 'Unique District Metered Area identifier (e.g. DEMO_DMA_01). Primary key.'
+            CONSTRAINT pk_dim_dma PRIMARY KEY,
+        dma_name STRING COMMENT 'Human-readable DMA name (e.g. Crystal Palace South, Sydenham Hill).',
+        dma_area_code STRING COMMENT 'Parent area grouping code for the DMA.',
+        geometry_wkt STRING COMMENT 'DMA boundary polygon in WKT format (WGS84 / SRID 4326).',
+        centroid_latitude DOUBLE COMMENT 'Latitude of the DMA centroid (WGS84).',
+        centroid_longitude DOUBLE COMMENT 'Longitude of the DMA centroid (WGS84).',
+        avg_elevation DOUBLE COMMENT 'Average ground elevation in metres above ordnance datum (m AOD).',
+        h3_index BIGINT COMMENT 'Uber H3 spatial index at resolution 7 for the DMA centroid.',
+        pressure_red_threshold DOUBLE COMMENT 'Pressure threshold (metres head) below which the DMA is classified RED. Default: 15.0 m.',
+        pressure_amber_threshold DOUBLE COMMENT 'Pressure threshold (metres head) below which the DMA is classified AMBER. Default: 25.0 m.'
     """,
 )
 @dp.expect_or_drop("has_geometry", "geometry_wkt IS NOT NULL")
@@ -247,7 +264,20 @@ def dim_dma():
 
 # COMMAND ----------
 
-@dp.materialized_view(name="silver.dim_pma")
+@dp.materialized_view(
+    name="silver.dim_pma",
+    comment="Pressure Management Area (PMA) reference data. Sub-zones within DMAs where pressure is actively managed via PRVs.",
+    schema="""
+        pma_code STRING NOT NULL COMMENT 'Unique Pressure Management Area identifier (e.g. PMA_01). Primary key.'
+            CONSTRAINT pk_dim_pma PRIMARY KEY,
+        pma_name STRING COMMENT 'Human-readable PMA name.',
+        dma_code STRING NOT NULL COMMENT 'Parent DMA code. Foreign key to dim_dma.'
+            CONSTRAINT fk_pma_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
+        geometry_wkt STRING COMMENT 'PMA boundary polygon in WKT format (WGS84 / SRID 4326).',
+        centroid_latitude DOUBLE COMMENT 'Latitude of the PMA centroid (WGS84).',
+        centroid_longitude DOUBLE COMMENT 'Longitude of the PMA centroid (WGS84).'
+    """,
+)
 @dp.expect_or_drop("has_geometry", "geometry_wkt IS NOT NULL")
 def dim_pma():
     raw = spark.read.table("bronze.raw_pma_boundaries")
@@ -275,25 +305,28 @@ def dim_pma():
 
 @dp.materialized_view(
     name="silver.dim_assets",
+    comment="Infrastructure asset register covering pump stations, trunk mains, isolation valves, and pressure reducing valves (PRVs). Contains asset status, geographic location, and maintenance history. Use dim_asset_dma_feed to find which DMAs an asset serves.",
     schema="""
-        asset_id STRING NOT NULL CONSTRAINT pk_dim_assets PRIMARY KEY,
-        asset_type STRING,
-        asset_name STRING,
-        dma_code STRING,
-        status STRING,
-        latitude DOUBLE,
-        longitude DOUBLE,
-        elevation_m DOUBLE,
-        geometry_wkt STRING,
-        diameter_inches DOUBLE,
-        length_km DOUBLE,
-        trip_timestamp TIMESTAMP,
-        install_date STRING,
-        manufacturer STRING,
-        model STRING,
-        capacity_kw DOUBLE,
-        last_maintenance STRING,
-        notes STRING
+        asset_id STRING NOT NULL COMMENT 'Unique asset identifier (e.g. DEMO_PUMP_01, TM_003). Primary key.'
+            CONSTRAINT pk_dim_assets PRIMARY KEY,
+        asset_type STRING COMMENT 'Asset type: pump_station, trunk_main, isolation_valve, or prv.',
+        asset_name STRING COMMENT 'Human-readable asset name.',
+        dma_code STRING COMMENT 'Primary DMA. Use dim_asset_dma_feed for full mapping.'
+            CONSTRAINT fk_assets_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
+        status STRING COMMENT 'Status: operational, tripped, failed, maintenance, or decommissioned.',
+        latitude DOUBLE COMMENT 'Asset latitude (WGS84).',
+        longitude DOUBLE COMMENT 'Asset longitude (WGS84).',
+        elevation_m DOUBLE COMMENT 'Elevation in metres above ordnance datum (m AOD).',
+        geometry_wkt STRING COMMENT 'WKT geometry (WGS84). POINT for pumps/valves; LINESTRING for mains.',
+        diameter_inches DOUBLE COMMENT 'Pipe diameter in inches. NULL for pump stations.',
+        length_km DOUBLE COMMENT 'Pipeline length in km. Trunk mains only.',
+        trip_timestamp STRING COMMENT 'Timestamp when the asset tripped (UTC). NULL if not tripped.',
+        install_date STRING COMMENT 'Installation date (YYYY-MM-DD).',
+        manufacturer STRING COMMENT 'Asset manufacturer.',
+        model STRING COMMENT 'Asset model or specification.',
+        capacity_kw DOUBLE COMMENT 'Pump motor capacity in kW. Pump stations only.',
+        last_maintenance STRING COMMENT 'Date of most recent maintenance (YYYY-MM-DD).',
+        notes STRING COMMENT 'Free-text notes about the asset.'
     """,
 )
 @dp.expect_or_drop("has_geometry", "geometry_wkt IS NOT NULL")
@@ -331,23 +364,25 @@ def dim_assets():
 
 @dp.materialized_view(
     name="silver.dim_properties",
+    comment="Property register for all residential and non-residential premises in the network. Includes property type classification (domestic, school, hospital, care_home, dialysis_home, commercial, nursery, key_account), sensitive premise flags, elevation, and expected base pressure.",
     schema="""
-        property_id STRING NOT NULL CONSTRAINT pk_dim_properties PRIMARY KEY,
-        address STRING,
-        postcode STRING,
-        property_type STRING,
-        dma_code STRING NOT NULL
+        property_id STRING NOT NULL COMMENT 'Unique property identifier (format: PROP_NNNNNN). Primary key.'
+            CONSTRAINT pk_dim_properties PRIMARY KEY,
+        address STRING COMMENT 'Street address of the property.',
+        postcode STRING COMMENT 'UK postcode of the property.',
+        property_type STRING COMMENT 'Property classification: domestic, commercial, school, hospital, care_home, dialysis_home, nursery, or key_account.',
+        dma_code STRING NOT NULL COMMENT 'DMA code the property is located in. Foreign key to dim_dma.'
             CONSTRAINT fk_property_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
-        customer_height_m DOUBLE,
-        elevation_m DOUBLE,
-        base_pressure DOUBLE,
-        latitude DOUBLE,
-        longitude DOUBLE,
-        occupants INT,
-        is_sensitive_premise BOOLEAN,
-        sensitive_premise_type STRING,
-        geometry_wkt STRING,
-        h3_index STRING
+        customer_height_m DOUBLE COMMENT 'Customer tap point height above ordnance datum in metres.',
+        elevation_m DOUBLE COMMENT 'Ground elevation in metres above ordnance datum (m AOD).',
+        base_pressure DOUBLE COMMENT 'Expected normal pressure at the tap in metres head (m).',
+        latitude DOUBLE COMMENT 'Property latitude (WGS84).',
+        longitude DOUBLE COMMENT 'Property longitude (WGS84).',
+        occupants BIGINT COMMENT 'Number of occupants at the property.',
+        is_sensitive_premise BOOLEAN COMMENT 'TRUE if school, hospital, care home, or dialysis-dependent home. Priority response required.',
+        sensitive_premise_type STRING COMMENT 'Type of sensitive premise: school, hospital, care_home, or dialysis_home. NULL for non-sensitive.',
+        geometry_wkt STRING COMMENT 'Property location as WKT POINT (WGS84 / SRID 4326).',
+        h3_index BIGINT COMMENT 'Uber H3 spatial index at resolution 8.'
     """,
 )
 @dp.expect("has_dma", "dma_code IS NOT NULL")
@@ -390,19 +425,21 @@ def dim_properties():
 
 @dp.materialized_view(
     name="silver.customer_complaints",
+    comment="Customer complaints received via contact centre. Each row is a single complaint with type (no_water, low_pressure, discoloured_water, other), DMA assignment, contact channel, and resolution status.",
     schema="""
-        complaint_id STRING NOT NULL,
-        property_id STRING
+        complaint_id STRING NOT NULL COMMENT 'Unique complaint identifier. Primary key.'
+            CONSTRAINT pk_customer_complaints PRIMARY KEY,
+        property_id STRING COMMENT 'Property that lodged the complaint. Foreign key to dim_properties.'
             CONSTRAINT fk_complaint_property FOREIGN KEY REFERENCES silver.dim_properties(property_id),
-        dma_code STRING NOT NULL
+        dma_code STRING NOT NULL COMMENT 'DMA code of the complaining property. Foreign key to dim_dma.'
             CONSTRAINT fk_complaint_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
-        complaint_timestamp TIMESTAMP,
-        complaint_type STRING,
-        description STRING,
-        contact_channel STRING,
-        customer_height_m DOUBLE,
-        property_type STRING,
-        status STRING
+        complaint_timestamp STRING COMMENT 'Timestamp when the complaint was received (UTC).',
+        complaint_type STRING COMMENT 'Category: no_water, low_pressure, discoloured_water, or other.',
+        description STRING COMMENT 'Free-text complaint description from the customer.',
+        contact_channel STRING COMMENT 'Channel: phone, web, or email.',
+        customer_height_m DOUBLE COMMENT 'Customer tap height in metres above ordnance datum.',
+        property_type STRING COMMENT 'Property type of the complainant.',
+        status STRING COMMENT 'Complaint resolution status: open, resolved, or closed.'
     """,
 )
 @dp.expect("valid_complaint_type", "complaint_type IN ('no_water', 'low_pressure', 'discoloured_water', 'other')")
@@ -436,24 +473,34 @@ def customer_complaints():
 
 @dp.materialized_view(
     name="silver.dim_sensor",
+    comment="Sensor registry for all pressure and flow sensors deployed across the network. Contains sensor type, DMA assignment, geographic coordinates, installation date, calibration history, and operational status (active or maintenance).",
     schema="""
-        sensor_id STRING NOT NULL CONSTRAINT pk_dim_sensor PRIMARY KEY,
-        sensor_type STRING,
-        dma_code STRING NOT NULL
+        sensor_id STRING NOT NULL COMMENT 'Unique sensor identifier. Primary key.'
+            CONSTRAINT pk_dim_sensor PRIMARY KEY,
+        sensor_type STRING COMMENT 'Sensor measurement type: pressure (metres head) or flow (litres per second).',
+        dma_code STRING NOT NULL COMMENT 'DMA code where the sensor is located. Foreign key to dim_dma.'
             CONSTRAINT fk_sensor_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
-        latitude DOUBLE,
-        longitude DOUBLE,
-        elevation_m DOUBLE,
-        install_date STRING,
-        manufacturer STRING,
-        model STRING,
-        status STRING,
-        last_calibration STRING
+        latitude DOUBLE COMMENT 'Sensor latitude (WGS84).',
+        longitude DOUBLE COMMENT 'Sensor longitude (WGS84).',
+        elevation_m DOUBLE COMMENT 'Sensor elevation in metres above ordnance datum (m AOD).',
+        install_date STRING COMMENT 'Date the sensor was installed (YYYY-MM-DD).',
+        manufacturer STRING COMMENT 'Sensor hardware manufacturer.',
+        model STRING COMMENT 'Sensor model identifier.',
+        status STRING COMMENT 'Operational status: active or maintenance.',
+        last_calibration STRING COMMENT 'Date of most recent calibration (YYYY-MM-DD).'
     """,
 )
 @dp.expect("has_dma", "dma_code IS NOT NULL")
 def dim_sensor():
-    return spark.read.table("bronze.raw_sensors")
+    return (
+        spark.read.table("bronze.raw_sensors")
+        .select(
+            "sensor_id", "sensor_type", "dma_code",
+            "latitude", "longitude", "elevation_m",
+            "install_date", "manufacturer", "model",
+            "status", "last_calibration"
+        )
+    )
 
 # COMMAND ----------
 
@@ -464,17 +511,21 @@ def dim_sensor():
 
 @dp.materialized_view(
     name="silver.dim_asset_dma_feed",
+    comment="Bridge table mapping infrastructure assets (pumps, mains, valves) to the DMAs they serve. Use this table to find which pump stations feed a given DMA or which DMAs are affected when an asset trips.",
     schema="""
-        asset_id STRING NOT NULL
+        asset_id STRING NOT NULL COMMENT 'Asset identifier. Foreign key to dim_assets.'
             CONSTRAINT fk_asset_feed_asset FOREIGN KEY REFERENCES silver.dim_assets(asset_id),
-        dma_code STRING NOT NULL
+        dma_code STRING NOT NULL COMMENT 'DMA code served by this asset. Foreign key to dim_dma.'
             CONSTRAINT fk_asset_feed_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
-        feed_type STRING,
-        notes STRING
+        feed_type STRING COMMENT 'Feed relationship: primary (main supply) or secondary (supplementary).',
+        notes STRING COMMENT 'Description of the feed relationship.'
     """,
 )
 def dim_asset_dma_feed():
-    return spark.read.table("bronze.raw_asset_dma_feed")
+    return (
+        spark.read.table("bronze.raw_asset_dma_feed")
+        .select("asset_id", "dma_code", "feed_type", "notes")
+    )
 
 # COMMAND ----------
 
@@ -485,24 +536,35 @@ def dim_asset_dma_feed():
 
 @dp.materialized_view(
     name="silver.dim_reservoirs",
+    comment="Service reservoir metadata including total capacity, current fill level, hourly demand rate, and estimated hours of supply remaining. Use dim_reservoir_dma_feed to find which DMAs a reservoir feeds.",
     schema="""
-        reservoir_id STRING NOT NULL CONSTRAINT pk_dim_reservoirs PRIMARY KEY,
-        reservoir_name STRING,
-        latitude DOUBLE,
-        longitude DOUBLE,
-        elevation_m DOUBLE,
-        capacity_ml DOUBLE,
-        current_level_pct DOUBLE,
-        current_volume_ml DOUBLE,
-        hourly_demand_rate_ml DOUBLE,
-        hours_remaining DOUBLE,
-        status STRING,
-        last_inspection STRING,
-        notes STRING
+        reservoir_id STRING NOT NULL COMMENT 'Unique service reservoir identifier (e.g. DEMO_SR_01). Primary key.'
+            CONSTRAINT pk_dim_reservoirs PRIMARY KEY,
+        reservoir_name STRING COMMENT 'Human-readable reservoir name.',
+        latitude DOUBLE COMMENT 'Reservoir latitude (WGS84).',
+        longitude DOUBLE COMMENT 'Reservoir longitude (WGS84).',
+        elevation_m DOUBLE COMMENT 'Elevation in metres above ordnance datum (m AOD).',
+        capacity_ml DOUBLE COMMENT 'Total storage capacity in megalitres (ML).',
+        current_level_pct DOUBLE COMMENT 'Current fill level as percentage (0-100%).',
+        current_volume_ml DOUBLE COMMENT 'Current stored volume in megalitres (ML).',
+        hourly_demand_rate_ml DOUBLE COMMENT 'Hourly draw-down rate in ML/hr.',
+        hours_remaining DOUBLE COMMENT 'Estimated hours of supply remaining at current demand.',
+        status STRING COMMENT 'Operational status: active or offline.',
+        last_inspection STRING COMMENT 'Date of most recent inspection (YYYY-MM-DD).',
+        notes STRING COMMENT 'Free-text notes about the reservoir.'
     """,
 )
 def dim_reservoirs():
-    return spark.read.table("bronze.raw_reservoirs")
+    return (
+        spark.read.table("bronze.raw_reservoirs")
+        .select(
+            "reservoir_id", "reservoir_name",
+            "latitude", "longitude", "elevation_m",
+            "capacity_ml", "current_level_pct", "current_volume_ml",
+            "hourly_demand_rate_ml", "hours_remaining",
+            "status", "last_inspection", "notes"
+        )
+    )
 
 # COMMAND ----------
 
@@ -513,16 +575,20 @@ def dim_reservoirs():
 
 @dp.materialized_view(
     name="silver.dim_reservoir_dma_feed",
+    comment="Bridge table mapping service reservoirs to the DMAs they supply. Feed type indicates primary (direct) or secondary (supplementary) supply relationship.",
     schema="""
-        reservoir_id STRING NOT NULL
+        reservoir_id STRING NOT NULL COMMENT 'Reservoir identifier. Foreign key to dim_reservoirs.'
             CONSTRAINT fk_reservoir_feed_reservoir FOREIGN KEY REFERENCES silver.dim_reservoirs(reservoir_id),
-        dma_code STRING NOT NULL
+        dma_code STRING NOT NULL COMMENT 'DMA code fed by this reservoir. Foreign key to dim_dma.'
             CONSTRAINT fk_reservoir_feed_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
-        feed_type STRING
+        feed_type STRING COMMENT 'Feed type: primary (direct supply) or secondary (supplementary).'
     """,
 )
 def dim_reservoir_dma_feed():
-    return spark.read.table("bronze.raw_reservoir_dma_feed")
+    return (
+        spark.read.table("bronze.raw_reservoir_dma_feed")
+        .select("reservoir_id", "dma_code", "feed_type")
+    )
 
 # COMMAND ----------
 
@@ -539,7 +605,21 @@ def dim_reservoir_dma_feed():
 
 # COMMAND ----------
 
-@dp.materialized_view(name="gold.vw_dma_pressure")
+@dp.materialized_view(
+    name="gold.vw_dma_pressure",
+    comment="Pre-aggregated pressure metrics per DMA per 15-minute interval. One row per DMA per timestamp. Use for: pressure trend analysis, DMA comparison, anomaly correlation. Grain: dma_code + timestamp.",
+    schema="""
+        dma_code STRING COMMENT 'District Metered Area identifier. Foreign key to dim_dma.'
+            CONSTRAINT fk_dma_pressure_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
+        timestamp STRING COMMENT 'Timestamp of the 15-minute telemetry aggregation window.',
+        avg_pressure DOUBLE COMMENT 'Average pressure in metres head across all pressure sensors in the DMA.',
+        max_pressure DOUBLE COMMENT 'Maximum pressure reading in the DMA (metres head).',
+        min_pressure DOUBLE COMMENT 'Minimum pressure reading in the DMA (metres head). Low values indicate supply issues.',
+        avg_total_head_pressure DOUBLE COMMENT 'Average total head pressure in metres head.',
+        reading_count LONG COMMENT 'Number of individual sensor readings in this aggregation window.',
+        dma_name STRING COMMENT 'Human-readable DMA display name.'
+    """,
+)
 def vw_dma_pressure():
     telemetry = spark.read.table("silver.fact_telemetry")
     dma = spark.read.table("silver.dim_dma")
@@ -567,7 +647,23 @@ def vw_dma_pressure():
 
 # COMMAND ----------
 
-@dp.materialized_view(name="gold.vw_reservoir_status")
+@dp.materialized_view(
+    name="gold.vw_reservoir_status",
+    comment="Service reservoir status joined with DMA feed topology. One row per reservoir-DMA feed relationship. Use for: reservoir monitoring, supply risk assessment, DMA resilience analysis. Grain: reservoir_id + dma_code.",
+    schema="""
+        reservoir_id STRING COMMENT 'Unique service reservoir identifier (e.g. DEMO_SR_01). Foreign key to dim_reservoirs.'
+            CONSTRAINT fk_res_status_reservoir FOREIGN KEY REFERENCES silver.dim_reservoirs(reservoir_id),
+        reservoir_name STRING COMMENT 'Human-readable reservoir name.',
+        dma_code STRING COMMENT 'DMA code of the area fed by this reservoir. Foreign key to dim_dma.'
+            CONSTRAINT fk_res_status_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
+        fed_dma_name STRING COMMENT 'Display name of the fed DMA.',
+        feed_type STRING COMMENT 'Feed relationship: primary (main supply) or secondary (supplementary).',
+        current_level_pct DOUBLE COMMENT 'Current reservoir fill level as percentage (0-100%).',
+        capacity_ml DOUBLE COMMENT 'Total reservoir storage capacity in megalitres (ML).',
+        hourly_demand_rate_ml DOUBLE COMMENT 'Hourly draw-down rate in megalitres per hour (ML/hr).',
+        hours_remaining DOUBLE COMMENT 'Estimated hours of supply remaining at current demand rate.'
+    """,
+)
 def vw_reservoir_status():
     reservoirs = spark.read.table("silver.dim_reservoirs")
     feeds = spark.read.table("silver.dim_reservoir_dma_feed")
@@ -594,7 +690,22 @@ def vw_reservoir_status():
 
 # COMMAND ----------
 
-@dp.materialized_view(name="gold.vw_property_pressure")
+@dp.materialized_view(
+    name="gold.vw_property_pressure",
+    comment="Per-property effective pressure at each 15-minute interval, accounting for customer tap height above ordnance datum. Effective pressure = total_head_pressure - customer_height_m. Use for: property-level impact assessment, sensitive premises analysis. Grain: property_id + timestamp.",
+    schema="""
+        property_id STRING COMMENT 'Unique property identifier. Foreign key to dim_properties.'
+            CONSTRAINT fk_prop_pressure_property FOREIGN KEY REFERENCES silver.dim_properties(property_id),
+        dma_code STRING COMMENT 'DMA code the property belongs to. Foreign key to dim_dma.'
+            CONSTRAINT fk_prop_pressure_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
+        property_type STRING COMMENT 'Property classification: domestic, commercial, school, hospital, care_home, dialysis_home, nursery, or key_account.',
+        customer_height_m DOUBLE COMMENT 'Customer tap point height above ordnance datum in metres.',
+        base_pressure DOUBLE COMMENT 'Expected normal pressure at the tap (metres head).',
+        timestamp STRING COMMENT 'Timestamp of the 15-minute pressure reading.',
+        total_head_pressure DOUBLE COMMENT 'Measured total head pressure from the DMA sensors (metres head).',
+        effective_pressure DOUBLE COMMENT 'Pressure at the customer tap = total_head_pressure - customer_height_m (metres head). Negative values indicate no supply.'
+    """,
+)
 def vw_property_pressure():
     props = spark.read.table("silver.dim_properties")
     telemetry = spark.read.table("silver.fact_telemetry")
@@ -622,7 +733,26 @@ def vw_property_pressure():
 
 # COMMAND ----------
 
-@dp.materialized_view(name="gold.mv_sensor_latest")
+@dp.materialized_view(
+    name="gold.mv_sensor_latest",
+    comment="Latest telemetry reading per sensor, pre-joined with sensor metadata. Eliminates slow LATERAL JOINs at query time. One row per sensor. Use for: real-time sensor dashboards, current DMA status, map overlays. Grain: sensor_id.",
+    schema="""
+        sensor_id STRING COMMENT 'Unique sensor identifier. Foreign key to dim_sensor.'
+            CONSTRAINT fk_sensor_latest_sensor FOREIGN KEY REFERENCES silver.dim_sensor(sensor_id),
+        latitude DOUBLE COMMENT 'Sensor latitude (WGS84).',
+        longitude DOUBLE COMMENT 'Sensor longitude (WGS84).',
+        elevation_m DOUBLE COMMENT 'Sensor elevation in metres above ordnance datum (m AOD).',
+        status STRING COMMENT 'Sensor operational status: active or maintenance.',
+        dma_code STRING COMMENT 'DMA code where the sensor is located. Foreign key to dim_dma.'
+            CONSTRAINT fk_sensor_latest_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
+        timestamp STRING COMMENT 'Timestamp of the most recent reading.',
+        sensor_type STRING COMMENT 'Sensor measurement type: pressure (metres head) or flow (litres per second).',
+        value DOUBLE COMMENT 'Latest pressure reading in metres head. NULL for flow sensors.',
+        total_head_pressure DOUBLE COMMENT 'Latest total head pressure in metres head. NULL for flow sensors.',
+        flow_rate DOUBLE COMMENT 'Latest flow rate in litres per second. NULL for pressure sensors.',
+        quality_flag STRING COMMENT 'Data quality flag for the reading.'
+    """,
+)
 def mv_sensor_latest():
     telemetry = spark.read.table("silver.fact_telemetry")
     sensors = spark.read.table("silver.dim_sensor")
@@ -657,7 +787,22 @@ def mv_sensor_latest():
 
 # COMMAND ----------
 
-@dp.materialized_view(name="gold.vw_dma_summary")
+@dp.materialized_view(
+    name="gold.vw_dma_summary",
+    comment="Pre-aggregated DMA-level summary: total properties, sensitive premises count, and downstream DMA count from asset-DMA feed topology. One row per DMA. Use for: DMA overview panels, map tooltips, quick reference. Grain: dma_code.",
+    schema="""
+        dma_code STRING COMMENT 'District Metered Area identifier. Foreign key to dim_dma.'
+            CONSTRAINT fk_dma_summary_dma FOREIGN KEY REFERENCES silver.dim_dma(dma_code),
+        dma_name STRING COMMENT 'Human-readable DMA display name.',
+        dma_area_code STRING COMMENT 'Parent area grouping code.',
+        avg_elevation DOUBLE COMMENT 'Average ground elevation in metres above ordnance datum (m AOD).',
+        centroid_latitude DOUBLE COMMENT 'Latitude of the DMA centroid (WGS84).',
+        centroid_longitude DOUBLE COMMENT 'Longitude of the DMA centroid (WGS84).',
+        total_properties LONG COMMENT 'Total number of properties (residential and non-residential) in the DMA.',
+        sensitive_premises_count LONG COMMENT 'Number of sensitive premises (hospitals, schools, care homes, dialysis homes) in the DMA.',
+        downstream_dma_count LONG COMMENT 'Number of DMAs with secondary feed dependency on assets that also serve this DMA.'
+    """,
+)
 def vw_dma_summary():
     props = spark.read.table("silver.dim_properties")
     dma = spark.read.table("silver.dim_dma")
