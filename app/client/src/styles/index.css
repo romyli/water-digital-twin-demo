@@ -69,6 +69,12 @@
 .rag-amber { background-color: #F59E0B; }
 .rag-green { background-color: #16A34A; }
 
+/* GenieChat fix: Radix ScrollArea uses display:table which grows unbounded,
+   pushing the input bar out of view. Override to block layout. */
+[data-radix-scroll-area-viewport] > div[style*="display: table"] {
+  display: block !important;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: #f1f5f9; }

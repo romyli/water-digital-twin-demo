@@ -18,13 +18,16 @@ export default function GenieNativePage() {
         </div>
       </div>
 
-      {/* GenieChat fills remaining space */}
-      <div className="flex-1 min-h-0 overflow-hidden bg-white">
-        <GenieChat
-          alias="default"
-          className="h-full"
-          placeholder="e.g. Which DMAs are red? Show pressure trends for DEMO_DMA_01..."
-        />
+      {/* GenieChat fills remaining space — absolute positioning gives it a concrete
+           pixel height, bypassing Radix ScrollArea's display:table unbounded growth */}
+      <div className="flex-1 min-h-0 relative">
+        <div className="absolute inset-0 overflow-hidden bg-white">
+          <GenieChat
+            alias="default"
+            className="h-full"
+            placeholder="e.g. Which DMAs are red? Show pressure trends for DEMO_DMA_01..."
+          />
+        </div>
       </div>
     </div>
   );
